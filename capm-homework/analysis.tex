@@ -1,0 +1,404 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% Set default figure placement to htbp
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{5}
+\ifLuaTeX
+\usepackage[bidi=basic]{babel}
+\else
+\usepackage[bidi=default]{babel}
+\fi
+% get rid of language-specific shorthands (see #6817):
+\let\LanguageShortHands\languageshorthands
+\def\languageshorthands#1{}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Analysis of Capital Asset Pricing Model (CAPM)},
+  pdfauthor={Filip Farkašovský; (Skupina 02, Tím 08)},
+  pdflang={eng},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Analysis of Capital Asset Pricing Model (CAPM)}
+\author{Filip Farkašovský \and (Skupina 02, Tím 08)}
+\date{02. 04. 2026}
+
+\begin{document}
+\maketitle
+
+{
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
+\section*{Abstract}\label{abstract}
+\addcontentsline{toc}{section}{Abstract}
+
+This study examines the Capital Asset Pricing Model (CAPM) using historical stock data from S\&P 500 constituents. The analysis focuses on estimating beta coefficients for individual assets and evaluating whether systematic risk adequately explains differences in expected returns.
+
+\section{Data Collection and Estimation of Beta Coefficients}\label{data-collection-and-estimation-of-beta-coefficients}
+
+\subsection{Data Loading and Preparation}\label{data-loading-and-preparation}
+
+We use a dataset containing historical daily stock price data for 472 current S\&P 500 companies, covering the period from January 2000 to February 2026. This dataset is one of the most comprehensive freely available S\&P 500 datasets on Kaggle, consisting of approximately 2.7 million observations over 26 years of U.S. equity market history. The dataset is available at: \url{https://www.kaggle.com/datasets/jacksaleeby/s-and-p500-historical-data}. To ensure sufficient time series length for reliable beta estimation, we retain only stocks with at least 60 monthly observations. After applying this filter, the dataset is reduced from 472 stocks to 461 stocks.
+
+Monthly returns are computed from end-of-month prices as logarithic returns:
+
+\begin{equation}
+r_{j,t} = \ln\left(\frac{P_{j,t}}{P_{j,t-1}}\right)
+\end{equation}
+
+As the risk-free rate, we use the 3-Month Treasury Bill Secondary Market Rate (Discount Basis), which is a commonly used proxy for the risk-free rate in econometric studies. The data are obtained from the Federal Reserve Economic Data (FRED) database: \url{https://fred.stlouisfed.org/series/DTB3}.
+
+The series is available at a daily frequency and in annualized percentage terms. It is converted to monthly frequency by taking the last observation of each month and transforming it into a monthly rate:
+
+\begin{equation}
+r_{f,t} = \frac{r_{f,t}^{(annual)}}{100 \cdot 12}.
+\end{equation}
+
+This transformation provides an approximation of the effective monthly risk-free rate.
+
+\subsection{Visualization of Time Series}\label{visualization-of-time-series}
+
+The time series in Figure \ref{fig:visualization} shows the evolution of the market return and the risk-free rate over time. The risk-free rate remains close to zero for most of the sample period and exhibits only limited variation, while the market return shows substantially higher volatility.
+
+\begin{figure}
+
+{\centering \includegraphics[width=0.7\linewidth]{analysis_files/figure-latex/visualization-1} 
+
+}
+
+\caption{Time Series of Market Return and Risk-Free Rate}\label{fig:visualization}
+\end{figure}
+
+Table \ref{tab:summary-stat} reports summary statistics of monthly stock returns. The mean return is close to zero, while the dispersion is substantial, as indicated by the standard deviation.
+
+\begin{table}
+
+\caption{\label{tab:summary-stat}Summary statistics of monthly stock returns}
+\centering
+\begin{tabular}[t]{rrrrrrr}
+\toprule
+Mean & SD & Min & Q1 & Median & Q3 & Max\\
+\midrule
+0.0093 & 0.0983 & -1.8546 & -0.0368 & 0.0131 & 0.0598 & 1.524\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figure \ref{fig:stocks-dist} presents the distribution of monthly returns for a sample of stocks.
+
+\begin{figure}
+
+{\centering \includegraphics[width=0.6\linewidth]{analysis_files/figure-latex/stocks-dist-1} 
+
+}
+
+\caption{Distribution of month returns - 10 sample stocks}\label{fig:stocks-dist}
+\end{figure}
+
+\subsection{Estimate of betta coefficients of the characteristic curves}\label{estimate-of-betta-coefficients-of-the-characteristic-curves}
+
+For each stock, the coefficients of the characteristic curve are estimated using the following model:
+\begin{equation}
+r_{j} - r_{f} = \alpha_{j} + \beta_{j} (r_{m} - r_{f}) + \varepsilon_{j}
+\end{equation}
+
+The CAPM beta coefficients are obtained from time-series regressions of excess stock returns on excess market returns. The results show substantial heterogeneity in systematic risk across assets.
+
+As reported in Table \ref{tab:tab-beta-summary}, the average \(\beta\) is close to one, which suggests that, on average, stocks have similar sensitivity to market movements as the market portfolio. However, individual estimates vary considerably. Some stocks have \(\beta > 1\), indicating higher systematic risk, while others have \(\beta < 1\) or values close to zero.
+
+Table \ref{tab:tab-beta-summary} also reports the proportion of statistically significant coefficients at different significance levels (5\%, respectively 1\%). These values represent the percentage of stocks for which the null hypothesis \(\beta = 0\) is rejected at the corresponding level. A higher percentage implies stronger overall evidence that market returns explain individual stock returns.
+
+The Security Characteristic Lines of selected stocks are shown in Figure \ref{fig:scl-plot}.
+
+\begin{table}
+
+\caption{\label{tab:tab-beta-summary}Summary statistics of estimated CAPM beta coefficients}
+\centering
+\begin{tabular}[t]{cccccc}
+\toprule
+Mean & Median & Minimum & Maximum & Significant (5\%) [\%] & Significant (1\%) [\%]\\
+\midrule
+1.02 & 0.975 & 0.179 & 2.76 & 100 & 98.915\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}
+
+{\centering \includegraphics[width=0.6\linewidth]{analysis_files/figure-latex/scl-plot-1} 
+
+}
+
+\caption{Security Characteristic Lines of selected stocks}\label{fig:scl-plot}
+\end{figure}
+
+\subsection{Testing hypotheses on the intercept of the CAPM model}\label{testing-hypotheses-on-the-intercept-of-the-capm-model}
+
+For each stock, we test the hypothesis that the intercept (alpha) in the CAPM model is equal to zero:
+
+\begin{equation}
+H_0: \alpha_j = 0 \quad \text{vs.} \quad H_1: \alpha_j \neq 0
+\end{equation}
+
+The tests are conducted at the 5\% significance level using t-tests based on the estimated regression coefficients.
+
+The results are summarized in Table \ref{tab:alpha-test-summary}. The null hypothesis is rejected for a relatively small subset of stocks. For these few assets, the intercept differs significantly from zero, suggesting that the CAPM does not fully explain their returns.
+
+Most stocks do not have an intercept that is significantly different from zero. This means that, for most assets, there is no evidence that they generate returns beside what would be expected after accounting for market risk.
+
+\begin{table}
+
+\caption{\label{tab:alpha-test-summary}CAPM intercept significance (5\% level)}
+\centering
+\begin{tabular}[t]{ccc}
+\toprule
+Significant on 5\% & count & percentage\\
+\midrule
+FALSE & 422 & 91.54\\
+TRUE & 39 & 8.46\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Testing CAPM Validity}\label{testing-capm-validity}
+
+\subsection{Portfolio Formation and Beta Aggregation}\label{portfolio-formation-and-beta-aggregation}
+
+Stocks are sorted by their estimated \(\beta\) coefficients and assigned to 20 portfolios of roughly equal size. Each portfolio is equally weighted, so the portfolio beta is the arithmetic mean of individual betas. Portfolio excess returns are computed as the time-series average of equally weighted stock excess returns over the full sample period.
+
+Table \ref{tab:portfolio-table} reveals a pattern inconsistent with CAPM. While portfolios are clearly ordered by beta, mean excess returns show no systematic increase with beta. As visible in Figure \ref{fig:sml-plot}, the relationship between beta and mean excess return appears hump-shaped rather than linear, suggesting a possible quadratic structure --- this is tested formally in Section \ref{extended-capm-specification}.
+
+\begin{table}
+
+\caption{\label{tab:portfolio-table}Portfolio betas and mean excess returns}
+\centering
+\begin{tabular}[t]{cccc}
+\toprule
+Portfolio & Beta & N Stocks & Mean Excess Return\\
+\midrule
+1 & 0.3266 & 24 & 0.0061\\
+2 & 0.4556 & 23 & 0.0066\\
+3 & 0.5518 & 23 & 0.0080\\
+4 & 0.6281 & 23 & 0.0104\\
+5 & 0.7030 & 23 & 0.0092\\
+\addlinespace
+6 & 0.7723 & 23 & 0.0069\\
+7 & 0.8195 & 23 & 0.0078\\
+8 & 0.8599 & 23 & 0.0109\\
+9 & 0.9070 & 23 & 0.0099\\
+10 & 0.9578 & 23 & 0.0073\\
+\addlinespace
+11 & 1.0099 & 23 & 0.0082\\
+12 & 1.0679 & 23 & 0.0104\\
+13 & 1.1341 & 23 & 0.0066\\
+14 & 1.1959 & 23 & 0.0085\\
+15 & 1.2565 & 23 & 0.0083\\
+\addlinespace
+16 & 1.3167 & 23 & 0.0074\\
+17 & 1.3793 & 23 & 0.0064\\
+18 & 1.4733 & 23 & 0.0054\\
+19 & 1.6159 & 23 & 0.0056\\
+20 & 1.9917 & 23 & 0.0033\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Security Market Line}\label{security-market-line}
+
+\begin{figure}
+
+{\centering \includegraphics[width=0.6\linewidth]{analysis_files/figure-latex/sml-plot-1} 
+
+}
+
+\caption{Security Market Line estimated from portfolio data}\label{fig:sml-plot}
+\end{figure}
+\begin{table}
+
+\caption{\label{tab:sml-table}Security Market Line regression results}
+\centering
+\begin{tabular}[t]{ccccc}
+\toprule
+Term & Estimate & Std. Error & t-statistic & p-value\\
+\midrule
+$\gamma_0$ & 0.0100 & 0.001 & 9.5225 & 0.0000\\
+$\gamma_1$ & -0.0023 & 0.001 & -2.3973 & 0.0276\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Security Market Line (SML) is estimated by regressing mean portfolio excess returns on portfolio betas:
+
+\begin{equation}
+r_{p_i} - r_f = \gamma_0 + \gamma_1 \beta_{p_{i}} + \varepsilon_{p_{i}}
+\end{equation}
+
+The estimated \(\hat{\gamma}_0 =\) 0.01 (statistically significant at 5\%) and \(\hat{\gamma}_1 =\) -0.0023 (statistically significant at 5\%).
+The observed mean market risk premium over the sample period is 0.0078.
+
+CAPM imposes two testable restrictions on the SML. First, \(\gamma_0\) should be zero, since if portfolio excess returns are fully explained by systematic risk, no intercept should remain.
+Second, \(\gamma_1\) should equal the observed market risk premium \(\bar{r}_m - r_f\).
+
+The intercept \(\hat{\gamma}_0\) is statistically significant
+at the 5\% level, which rejects the first CAPM restriction --- some component of portfolio
+returns is not explained by market risk alone.
+
+To test the second restriction, we assess whether \(\gamma_1 = \bar{r}_m - r_f\) using a
+t-test:
+\begin{equation}
+t = \frac{\hat{\gamma}_1 - (\bar{r}_m - r_f)}{se(\hat{\gamma}_1)}
+\end{equation}
+
+The test yields \(t =\) -10.545 (p-value = 0), so the
+hypothesis \(\gamma_1 = \bar{r}_m - r_f\) is rejected at the 5\%
+level. The estimated slope is below the observed market premium, consistent with the
+empirical finding that defensive stocks earn more than CAPM predicts and aggressive
+stocks earn less.
+
+Taken together, these results do not support the CAPM restrictions on the SML.
+
+\subsection{Extended CAPM Specification}\label{extended-capm-specification}
+
+Following Fama and MacBeth (1973) and Gibbons (1982), we test whether the linear CAPM specification is adequate by adding a squared beta term and a measure of idiosyncratic risk:
+
+\begin{equation}
+\bar{r}_{p} - r_f = \delta_1 + \delta_2 \hat{\beta}_p + \delta_3 \hat{\beta}_p^2 + \delta_4 \hat{\sigma}^2_{\varepsilon_p} + \varepsilon_p
+\end{equation}
+
+If CAPM holds, \(\delta_3\) and \(\delta_4\) should both be zero: \(\delta_3 = 0\) tests for linearity, \(\delta_4 = 0\) tests whether idiosyncratic risk is priced.
+
+\begin{table}
+
+\caption{\label{tab:extended-capm}Extended CAPM specification (Fama-MacBeth/Gibbons)}
+\centering
+\begin{tabular}[t]{ccccc}
+\toprule
+Term & Estimate & Std. Error & t-statistic & p-value\\
+\midrule
+$\delta_1$ & 0.0048 & 0.0019 & 2.5950 & 0.0195\\
+$\delta_2$ & 0.0091 & 0.0033 & 2.7538 & 0.0141\\
+$\delta_3$ & -0.0048 & 0.0016 & -3.0088 & 0.0083\\
+$\delta_4$ & -0.0967 & 0.2307 & -0.4194 & 0.6805\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table \ref{tab:extended-capm} reports the estimates of the extended CAPM specification. The coefficient \(\delta_2\) is positive and statistically significant, indicating a positive relationship between beta and returns.
+
+The coefficient \(\delta_3\) is statistically significant, which suggests that the relationship between returns and beta is not linear. This contradicts the standard CAPM assumption.
+
+The coefficient \(\delta_4\) is not statistically significant, indicating that idiosyncratic risk is not priced. This result is consistent with CAPM.
+
+The intercept \(\delta_1\) is statistically significant, which suggests that average returns are not fully explained by beta.
+
+Overall, the results provide only partial support for CAPM. The pricing of idiosyncratic risk is not supported, but the linearity assumption is violated and the intercept is significantly different from zero
+
+\section{Structural Breaks and Asymmetries in CAPM}\label{structural-breaks-and-asymmetries-in-capm}
+
+\subsection{Structural Break in Beta Coefficients}\label{structural-breaks}
+
+We test whether beta coefficients changed in the last 24 months of the sample. The
+characteristic curve is reformulated with a dummy variable \(D_t = 1\) for the last 24
+months:
+
+\begin{equation}
+r_{j,t} - r_{f,t} = \alpha_j + \beta_j(r_{m,t} - r_{f,t}) + 
+\gamma_j D_t (r_{m,t} - r_{f,t}) + \varepsilon_{j,t}
+\end{equation}
+
+where \(\gamma_j\) captures the change in beta in the later subperiod. Two tests are applied
+per stock: the \textbf{Chow structural break test} and the \textbf{Chow forecast test}. The structural
+break test asks whether all coefficients shift at the breakpoint; the forecast test asks
+whether the model estimated on the first period produces significantly poor forecasts for
+the second --- it is less parametric and more sensitive when the break is only partial or
+the second period is short.
+
+\begin{table}
+
+\caption{\label{tab:structural-break}Share of stocks with structural break in beta (5\% level)}
+\centering
+\begin{tabular}[t]{cc}
+\toprule
+Chow structural [%] & Chow forecast [%]\\
+\midrule
+9.3 & 15.8\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A high share of rejections indicates that beta coefficients are unstable across the two
+subperiods for a substantial portion of stocks, which would undermine the assumption of
+constant systematic risk in CAPM.
+
+\subsection{Security Market Line by Subperiod}\label{security-market-line-by-subperiod}
+
+We split the sample at the same breakpoint and re-estimate the SML separately for each
+subperiod, using the same portfolio structure as in Example 2.
+
+\end{document}

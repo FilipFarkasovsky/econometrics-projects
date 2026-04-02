@@ -291,9 +291,9 @@ H_0: \alpha_j = 0 \quad \text{vs.} \quad H_1: \alpha_j \neq 0
 
 The tests are conducted at the 5% significance level using t-tests based on the estimated regression coefficients.
 
-The results are summarized in Table \@ref(tab:alpha-test-summary). The null hypothesis is rejected for a relatively small subset of stocks, indicating statistically significant abnormal returns. For these assets, the intercept differs significantly from zero, suggesting that the CAPM does not fully explain their returns.
+The results are summarized in Table \@ref(tab:alpha-test-summary). The null hypothesis is rejected for a relatively small subset of stocks. For these few assets, the intercept differs significantly from zero, suggesting that the CAPM does not fully explain their returns.
 
-Most stocks do not have an intercept that is significantly different from zero. This means that, for most assets, there is no evidence that they generate returns above what would be expected after accounting for market risk.
+Most stocks do not have an intercept that is significantly different from zero. This means that, for most assets, there is no evidence that they generate returns beside what would be expected after accounting for market risk.
 
 
 ```{r alpha-test-summary, out.width="70%"}
@@ -365,13 +365,7 @@ portfolio_data %>%
 
 ## Security Market Line
 
-The Security Market Line (SML) is estimated by regressing mean portfolio excess returns on portfolio betas:
 
-\begin{equation}
-r_{p_i} - r_f = \gamma_0 + \gamma_1 \beta_{p_{i}} + \varepsilon_{p_{i}}
-\end{equation}
-
-If CAPM holds, $\gamma_0$ should be statistically indistinguishable from zero and $\gamma_1$ should equal the observed mean market risk premium $\bar{r}_m - r_f$.
 ```{r sml-estimation}
 mean_market_premium <- capm_data %>%
   summarise(mean_excess_market = mean(excess_market, na.rm = TRUE)) %>%
@@ -390,11 +384,6 @@ portfolio_data %>%
   ggplot(aes(x = portfolio_beta, y = mean_excess_return)) +
   geom_point(size = 2.5, color = "steelblue") +
   geom_smooth(method = "lm", se = TRUE, color = "#d62728", linewidth = 0.8) +
-  geom_abline(
-    intercept = 0,
-    slope = mean_market_premium,
-    linetype = "dashed", color = "grey40"
-  ) +
   scale_y_continuous(labels = scales::percent_format()) +
   labs(
     x = expression(hat(beta)[p]),
@@ -415,15 +404,16 @@ sml_summary %>%
   )
 ```
 
-The estimated $\hat{\gamma}_0 =$ `r round(gamma0, 4)` (`r ifelse(gamma0_p < 0.05, "statistically significant", "not significant")` at 5%) and $\hat{\gamma}_1 =$ `r round(gamma1, 4)` (`r ifelse(gamma1_p < 0.05, "statistically significant", "not significant")` at 5%). The observed mean market risk premium is `r round(mean_market_premium, 4)`.
+The Security Market Line (SML) is estimated by regressing mean portfolio excess returns on portfolio betas:
 
-These results are in line with typical empirical findings: $\gamma_1$ tends to be below the observed market premium, meaning defensive stocks earn more than CAPM predicts and aggressive stocks earn less. A non-zero $\gamma_0$ would indicate the presence of returns not explained by market risk alone, which works against CAPM.
+\begin{equation}
+r_{p_i} - r_f = \gamma_0 + \gamma_1 \beta_{p_{i}} + \varepsilon_{p_{i}}
+\end{equation}
 
-The estimated $\hat{\gamma}_0 =$ `r round(gamma0, 4)` and $\hat{\gamma}_1 =$ `r round(gamma1, 4)`. 
+The estimated $\hat{\gamma}_0 =$ `r round(gamma0, 4)` (`r ifelse(gamma0_p < 0.05, "statistically significant", "not significant")` at 5%) and $\hat{\gamma}_1 =$ `r round(gamma1, 4)` (`r ifelse(gamma1_p < 0.05, "statistically significant", "not significant")` at 5%).
 The observed mean market risk premium over the sample period is `r round(mean_market_premium, 4)`.
 
-CAPM imposes two testable restrictions on the SML. First, $\gamma_0$ should be zero — if 
-portfolio excess returns are fully explained by systematic risk, no intercept should remain. 
+CAPM imposes two testable restrictions on the SML. First, $\gamma_0$ should be zero, since if portfolio excess returns are fully explained by systematic risk, no intercept should remain. 
 Second, $\gamma_1$ should equal the observed market risk premium $\bar{r}_m - r_f$.
 
 The intercept $\hat{\gamma}_0$ is `r ifelse(gamma0_p < 0.05, "statistically significant 
@@ -433,8 +423,10 @@ level, consistent with the first CAPM restriction")`.
 
 To test the second restriction, we assess whether $\gamma_1 = \bar{r}_m - r_f$ using a 
 t-test:
+\begin{equation}
+t = \frac{\hat{\gamma}_1 - (\bar{r}_m - r_f)}{se(\hat{\gamma}_1)}
+\end{equation}
 
-$$t = \frac{\hat{\gamma}_1 - (\bar{r}_m - r_f)}{se(\hat{\gamma}_1)}$$
 ```{r sml-gamma1-test}
 gamma1_est <- sml_summary$estimate[2]
 gamma1_se  <- sml_summary$std.error[2]
@@ -443,14 +435,12 @@ p_val      <- 2 * pt(-abs(t_stat), df = nrow(portfolio_data) - 2)
 ```
 
 The test yields $t =$ `r round(t_stat, 3)` (p-value = `r round(p_val, 3)`), so the 
-hypothesis $\gamma_1 = \bar{r}_m - r_f$ is `r ifelse(p_val < 0.05, "rejected at the 5% 
+hypothesis $\gamma_1 = \bar{r}_m - r_f$ is rejected at the 5% 
 level. The estimated slope is below the observed market premium, consistent with the 
-well-documented finding that defensive stocks earn more than CAPM predicts and aggressive 
-stocks earn less", "not rejected at the 5% level, meaning the slope is statistically 
-consistent with the observed market risk premium")`.
+empirical finding that defensive stocks earn more than CAPM predicts and aggressive 
+stocks earn less.
 
-Taken together, these results `r ifelse(gamma0_p < 0.05 | p_val < 0.05, "do not support", 
-"are consistent with")` the CAPM restrictions on the SML.
+Taken together, these results do not support the CAPM restrictions on the SML.
 
 ## Extended CAPM Specification {#extended-capm-specification}
 
@@ -498,4 +488,12 @@ tidy(extended_model) %>%
   )
 ```
 
-The significance of $\delta_3$ indicates whether the return-beta relationship deviates from linearity. A significant $\delta_4$ would suggest that idiosyncratic risk carries a risk premium, which CAPM does not allow for. Interpret the estimates in the context of the p-values reported in Table \@ref(tab:extended-capm).
+Table @ref(tab:extended-capm) reports the estimates of the extended CAPM specification. The coefficient $\delta_2$ is positive and statistically significant, indicating a positive relationship between beta and returns.
+
+The coefficient $\delta_3$ is statistically significant, which suggests that the relationship between returns and beta is not linear. This contradicts the standard CAPM assumption.
+
+The coefficient $\delta_4$ is not statistically significant, indicating that idiosyncratic risk is not priced. This result is consistent with CAPM.
+
+The intercept $\delta_1$ is statistically significant, which suggests that average returns are not fully explained by beta.
+
+Overall, the results provide only partial support for CAPM. The pricing of idiosyncratic risk is not supported, but the linearity assumption is violated and the intercept is significantly different from zero
