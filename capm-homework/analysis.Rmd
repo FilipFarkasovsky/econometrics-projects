@@ -137,9 +137,6 @@ This transformation provides an approximation of the effective monthly risk-free
 ## Visualization of Time Series
 The time series in Figure @ref(fig:visualization) shows the evolution of the market return and the risk-free rate over time. The risk-free rate remains close to zero for most of the sample period and exhibits only limited variation, while the market return shows substantially higher volatility.
 
-Table @ref(tab:summary-stat) reports summary statistics of monthly stock returns. The mean return is close to zero, while the dispersion is substantial, as indicated by the standard deviation.
-
-Figure @ref(fig:stocks-dist) presents the distribution of monthly returns for a sample of stocks.
 
 ```{r visualization, fig.width=5, fig.height=3, out.width="70%", fig.cap="Time Series of Market Return and Risk-Free Rate"}
 capm_data %>%
@@ -163,6 +160,7 @@ capm_data %>%
     axis.text.x = element_text(angle = 45, hjust = 1)
   )
 ```
+Table @ref(tab:summary-stat) reports summary statistics of monthly stock returns. The mean return is close to zero, while the dispersion is substantial, as indicated by the standard deviation.
 
 ```{r summary-stat}
 capm_data %>%
@@ -175,8 +173,11 @@ capm_data %>%
     Q3 = quantile(stock_return, 0.75, na.rm = TRUE),
     Max = max(stock_return, na.rm = TRUE)
   ) %>%
-  kable(digits = 4, caption = "Summary statistics of monthly stock returns")
+  kable(digits = 4,booktabs = TRUE,
+ caption = "Summary statistics of monthly stock returns")
 ```
+
+Figure @ref(fig:stocks-dist) presents the distribution of monthly returns for a sample of stocks.
 
 ```{r stocks-dist, fig.cap="Distribution of month returns - 10 sample stocks"}
 set.seed(1789)
@@ -240,7 +241,7 @@ Table \@ref(tab:tab-beta-summary) also reports the proportion of statistically s
 
 The Security Characteristic Lines of selected stocks are shown in Figure \@ref(fig:scl-plot). 
 
-```{r tab-beta-summary, results='asis'}
+```{r tab-beta-summary}
 coef_characteristic_curve %>%
   summarise(
     Mean = mean(beta, na.rm = TRUE),
@@ -290,20 +291,211 @@ H_0: \alpha_j = 0 \quad \text{vs.} \quad H_1: \alpha_j \neq 0
 
 The tests are conducted at the 5% significance level using t-tests based on the estimated regression coefficients.
 
-The results are summarized in Table \@ref(tab:alpha-test-summary). The null hypothesis is rejected for a subset of stocks, indicating statistically significant abnormal returns. For these assets, the intercept differs significantly from zero, suggesting that the CAPM does not fully explain their returns.
+The results are summarized in Table \@ref(tab:alpha-test-summary). The null hypothesis is rejected for a relatively small subset of stocks, indicating statistically significant abnormal returns. For these assets, the intercept differs significantly from zero, suggesting that the CAPM does not fully explain their returns.
 
-However, for the majority of stocks, the intercept is not statistically different from zero. This implies that, for most assets, there is no evidence of abnormal performance once market risk is taken into account.
+Most stocks do not have an intercept that is significantly different from zero. This means that, for most assets, there is no evidence that they generate returns above what would be expected after accounting for market risk.
 
-```{r alpha-test-summary, results='asis'}
+
+```{r alpha-test-summary, out.width="70%"}
+library(gt)
+
 coef_characteristic_curve %>%
-  mutate(significant_5pct = alpha_p < 0.05) %>%
-  group_by(significant_5pct) %>%
+  mutate(`Significant on 5%` = alpha_p < 0.05) %>%
+  group_by(`Significant on 5%`) %>%
   summarise(count = n()) %>%
   mutate(percentage = count / sum(count) * 100) %>%
   kable(
-    format = "latex",
-    digits = 3,
+    digits = 2,
+    booktabs = TRUE,
     align = "c",
-    caption = "Test of significance of CAPM intercepts at 5% level",
-    booktabs = TRUE
+    caption = "CAPM intercept significance (5\\% level)"
   )
+```
+
+
+# Testing CAPM Validity
+
+## Portfolio Formation and Beta Aggregation
+
+Stocks are sorted by their estimated $\beta$ coefficients and assigned to 20 portfolios of roughly equal size. Each portfolio is equally weighted, so the portfolio beta is the arithmetic mean of individual betas. Portfolio excess returns are computed as the time-series average of equally weighted stock excess returns over the full sample period.
+```{r portfolio-formation}
+n_portfolios <- 20
+
+portfolio_assignments <- coef_characteristic_curve %>%
+  arrange(beta) %>%
+  mutate(portfolio = ntile(beta, n_portfolios))
+
+portfolio_returns <- capm_data %>%
+  left_join(portfolio_assignments %>% select(ticker, portfolio), by = "ticker") %>%
+  filter(!is.na(portfolio)) %>%
+  group_by(portfolio, year_month) %>%
+  summarise(
+    portfolio_excess_return = mean(excess_return, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  group_by(portfolio) %>%
+  summarise(
+    mean_excess_return = mean(portfolio_excess_return, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+portfolio_betas <- portfolio_assignments %>%
+  group_by(portfolio) %>%
+  summarise(
+    portfolio_beta = mean(beta, na.rm = TRUE),
+    n_stocks = n(),
+    .groups = "drop"
+  )
+
+portfolio_data <- portfolio_betas %>%
+  left_join(portfolio_returns, by = "portfolio")
+```
+
+Table @ref(tab:portfolio-table) reveals a pattern inconsistent with CAPM. While portfolios are clearly ordered by beta, mean excess returns show no systematic increase with beta. As visible in Figure @ref(fig:sml-plot), the relationship between beta and mean excess return appears hump-shaped rather than linear, suggesting a possible quadratic structure — this is tested formally in Section @ref(extended-capm-specification).
+```{r portfolio-table}
+portfolio_data %>%
+  kable(
+    digits = 4,
+    col.names = c("Portfolio", "Beta", "N Stocks", "Mean Excess Return"),
+    caption = "Portfolio betas and mean excess returns",
+    booktabs = TRUE,
+    align = "c"
+  )
+```
+
+## Security Market Line
+
+The Security Market Line (SML) is estimated by regressing mean portfolio excess returns on portfolio betas:
+
+\begin{equation}
+r_{p_i} - r_f = \gamma_0 + \gamma_1 \beta_{p_{i}} + \varepsilon_{p_{i}}
+\end{equation}
+
+If CAPM holds, $\gamma_0$ should be statistically indistinguishable from zero and $\gamma_1$ should equal the observed mean market risk premium $\bar{r}_m - r_f$.
+```{r sml-estimation}
+mean_market_premium <- capm_data %>%
+  summarise(mean_excess_market = mean(excess_market, na.rm = TRUE)) %>%
+  pull(mean_excess_market)
+
+sml_model <- lm(mean_excess_return ~ portfolio_beta, data = portfolio_data)
+sml_summary <- tidy(sml_model)
+
+gamma0 <- sml_summary$estimate[1]
+gamma1 <- sml_summary$estimate[2]
+gamma0_p <- sml_summary$p.value[1]
+gamma1_p <- sml_summary$p.value[2]
+```
+```{r sml-plot, fig.cap="Security Market Line estimated from portfolio data"}
+portfolio_data %>%
+  ggplot(aes(x = portfolio_beta, y = mean_excess_return)) +
+  geom_point(size = 2.5, color = "steelblue") +
+  geom_smooth(method = "lm", se = TRUE, color = "#d62728", linewidth = 0.8) +
+  geom_abline(
+    intercept = 0,
+    slope = mean_market_premium,
+    linetype = "dashed", color = "grey40"
+  ) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    x = expression(hat(beta)[p]),
+    y = "Mean excess return"
+  ) +
+  theme_minimal(base_size = 12)
+```
+```{r sml-table}
+sml_summary %>%
+  mutate(term = c("$\\gamma_0$", "$\\gamma_1$")) %>%
+  kable(
+    digits = 4,
+    col.names = c("Term", "Estimate", "Std. Error", "t-statistic", "p-value"),
+    caption = "Security Market Line regression results",
+    booktabs = TRUE,
+    align = "c",
+    escape = FALSE
+  )
+```
+
+The estimated $\hat{\gamma}_0 =$ `r round(gamma0, 4)` (`r ifelse(gamma0_p < 0.05, "statistically significant", "not significant")` at 5%) and $\hat{\gamma}_1 =$ `r round(gamma1, 4)` (`r ifelse(gamma1_p < 0.05, "statistically significant", "not significant")` at 5%). The observed mean market risk premium is `r round(mean_market_premium, 4)`.
+
+These results are in line with typical empirical findings: $\gamma_1$ tends to be below the observed market premium, meaning defensive stocks earn more than CAPM predicts and aggressive stocks earn less. A non-zero $\gamma_0$ would indicate the presence of returns not explained by market risk alone, which works against CAPM.
+
+The estimated $\hat{\gamma}_0 =$ `r round(gamma0, 4)` and $\hat{\gamma}_1 =$ `r round(gamma1, 4)`. 
+The observed mean market risk premium over the sample period is `r round(mean_market_premium, 4)`.
+
+CAPM imposes two testable restrictions on the SML. First, $\gamma_0$ should be zero — if 
+portfolio excess returns are fully explained by systematic risk, no intercept should remain. 
+Second, $\gamma_1$ should equal the observed market risk premium $\bar{r}_m - r_f$.
+
+The intercept $\hat{\gamma}_0$ is `r ifelse(gamma0_p < 0.05, "statistically significant 
+at the 5% level, which rejects the first CAPM restriction — some component of portfolio 
+returns is not explained by market risk alone", "not statistically significant at the 5% 
+level, consistent with the first CAPM restriction")`.
+
+To test the second restriction, we assess whether $\gamma_1 = \bar{r}_m - r_f$ using a 
+t-test:
+
+$$t = \frac{\hat{\gamma}_1 - (\bar{r}_m - r_f)}{se(\hat{\gamma}_1)}$$
+```{r sml-gamma1-test}
+gamma1_est <- sml_summary$estimate[2]
+gamma1_se  <- sml_summary$std.error[2]
+t_stat     <- (gamma1_est - mean_market_premium) / gamma1_se
+p_val      <- 2 * pt(-abs(t_stat), df = nrow(portfolio_data) - 2)
+```
+
+The test yields $t =$ `r round(t_stat, 3)` (p-value = `r round(p_val, 3)`), so the 
+hypothesis $\gamma_1 = \bar{r}_m - r_f$ is `r ifelse(p_val < 0.05, "rejected at the 5% 
+level. The estimated slope is below the observed market premium, consistent with the 
+well-documented finding that defensive stocks earn more than CAPM predicts and aggressive 
+stocks earn less", "not rejected at the 5% level, meaning the slope is statistically 
+consistent with the observed market risk premium")`.
+
+Taken together, these results `r ifelse(gamma0_p < 0.05 | p_val < 0.05, "do not support", 
+"are consistent with")` the CAPM restrictions on the SML.
+
+## Extended CAPM Specification {#extended-capm-specification}
+
+Following Fama and MacBeth (1973) and Gibbons (1982), we test whether the linear CAPM specification is adequate by adding a squared beta term and a measure of idiosyncratic risk:
+
+\begin{equation}
+\bar{r}_{p} - r_f = \delta_1 + \delta_2 \hat{\beta}_p + \delta_3 \hat{\beta}_p^2 + \delta_4 \hat{\sigma}^2_{\varepsilon_p} + \varepsilon_p
+\end{equation}
+
+If CAPM holds, $\delta_3$ and $\delta_4$ should both be zero: $\delta_3 = 0$ tests for linearity, $\delta_4 = 0$ tests whether idiosyncratic risk is priced.
+```{r extended-capm}
+# Residual variance per stock from characteristic curves
+resid_var <- capm_data %>%
+  group_by(ticker) %>%
+  do({
+    m <- lm(excess_return ~ excess_market, data = .)
+    tibble(sigma2_eps = var(resid(m)))
+  }) %>%
+  ungroup()
+
+# Aggregate to portfolios
+portfolio_sigma2 <- portfolio_assignments %>%
+  left_join(resid_var, by = "ticker") %>%
+  group_by(portfolio) %>%
+  summarise(sigma2_eps = mean(sigma2_eps, na.rm = TRUE), .groups = "drop")
+
+portfolio_data_ext <- portfolio_data %>%
+  left_join(portfolio_sigma2, by = "portfolio") %>%
+  mutate(beta2 = portfolio_beta^2)
+
+extended_model <- lm(
+  mean_excess_return ~ portfolio_beta + beta2 + sigma2_eps,
+  data = portfolio_data_ext
+)
+
+tidy(extended_model) %>%
+  mutate(term = c("$\\delta_1$", "$\\delta_2$", "$\\delta_3$", "$\\delta_4$")) %>%
+  kable(
+    digits = 4,
+    col.names = c("Term", "Estimate", "Std. Error", "t-statistic", "p-value"),
+    caption = "Extended CAPM specification (Fama-MacBeth/Gibbons)",
+    booktabs = TRUE,
+    align = "c",
+    escape = FALSE
+  )
+```
+
+The significance of $\delta_3$ indicates whether the return-beta relationship deviates from linearity. A significant $\delta_4$ would suggest that idiosyncratic risk carries a risk premium, which CAPM does not allow for. Interpret the estimates in the context of the p-values reported in Table \@ref(tab:extended-capm).
