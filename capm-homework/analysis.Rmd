@@ -1,0 +1,309 @@
+---
+title: "Analysis of Capital Asset Pricing Model (CAPM)"
+author: 
+  - "Filip Farkašovský"
+  - "(Skupina 02, Tím 08)"
+date: "`r format(Sys.Date(), '%d. %m. %Y')`"
+lang: eng
+output:
+  bookdown::pdf_document2:
+    highlight: monochrome
+    fig_caption: true
+---
+
+# Abstract {-}
+
+This study examines the Capital Asset Pricing Model (CAPM) using historical stock data from S&P 500 constituents. The analysis focuses on estimating beta coefficients for individual assets and evaluating whether systematic risk adequately explains differences in expected returns.
+
+# Data Collection and Estimation of Beta Coefficients
+
+## Data Loading and Preparation
+
+```{r setup, include=FALSE}
+rm(list = ls())
+set.seed(1789)
+
+
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE,
+  fig.width = 5,
+  fig.height = 3,
+    out.width = "60%",
+  fig.align = "center")
+
+library(knitr)
+library(tidyverse)
+library(lubridate)
+library(quantmod)
+library(PerformanceAnalytics)
+library(broom)
+library(dplyr)
+library(ggplot2)
+library(car)
+```
+
+```{r data-loading, include=FALSE}
+rm(list = ls())
+
+# Load and preprocess stock dataset
+unzip("SP500_Historical_Data.zip")
+stocks <- read_csv("SP500_Historical_Data.csv") %>% 
+    mutate(ticker = factor(Ticker),
+           date = as.Date(Date),
+           close = as.numeric(Close)) %>%
+    arrange(ticker, date)
+
+# Monthly prices
+stocks <- stocks %>%
+  mutate(year_month = floor_date(date, "month")) %>%
+  arrange(ticker, year_month) %>%
+  group_by(ticker, year_month) %>%
+  summarise(price = last(close[!is.na(close)]), .groups = "drop") 
+
+# Load and preprocess DTB3 dataset
+risk_free_rate <- read_csv("DTB3.csv") %>%
+  mutate(
+    date = as.Date(observation_date),
+    rf_annual = as.numeric(DTB3)
+  ) %>%
+  mutate(year_month = floor_date(date, "month")) %>%
+  group_by(year_month) %>%
+  summarise(rf_annual = last(rf_annual[!is.na(rf_annual)]), .groups = "drop") %>%
+  mutate(rf_monthly = (rf_annual / 100) / 12)
+
+# Join datasets and filter stock with few samples
+capm_data <- stocks %>%
+  left_join(risk_free_rate, by = "year_month")
+
+n_before <- capm_data %>%
+  summarise(n_tickers = n_distinct(ticker)) %>%
+  pull(n_tickers)
+
+# Filter stocks with insufficient number of observations
+capm_data <- capm_data %>%
+  group_by(ticker) %>%
+  filter(!is.na(price)) %>%
+  filter(n() >= 60) %>%
+  ungroup()
+
+n_after <- capm_data %>%
+  summarise(n_tickers = n_distinct(ticker)) %>%
+  pull(n_tickers)
+
+# Logaritmical monthly revenue
+capm_data <- capm_data %>%
+  arrange(ticker, year_month) %>%
+  group_by(ticker) %>%
+  mutate(stock_return = log(price / lag(price))) %>%
+  filter(!is.na(stock_return)) %>%
+  ungroup()
+
+# Obtain market returns for equal weighted stock portfolio
+market_returns <- capm_data %>%
+  group_by(year_month) %>%
+  summarise(market_return = mean(stock_return), .groups = "drop")
+
+capm_data <- capm_data %>%
+  left_join(market_returns, by = "year_month")
+
+# Add excess returns 
+capm_data <- capm_data %>%
+  mutate(
+    excess_return = stock_return - rf_monthly,
+    excess_market = market_return - rf_monthly
+  )
+```
+
+We use a dataset containing historical daily stock price data for 472 current S&P 500 companies, covering the period from January 2000 to February 2026. This dataset is one of the most comprehensive freely available S&P 500 datasets on Kaggle, consisting of approximately 2.7 million observations over 26 years of U.S. equity market history. The dataset is available at: \url{https://www.kaggle.com/datasets/jacksaleeby/s-and-p500-historical-data}. To ensure sufficient time series length for reliable beta estimation, we retain only stocks with at least 60 monthly observations. After applying this filter, the dataset is reduced from `r n_before` stocks to `r n_after` stocks.
+
+Monthly returns are computed from end-of-month prices as logarithic returns:
+
+\begin{equation}
+r_{j,t} = \ln\left(\frac{P_{j,t}}{P_{j,t-1}}\right)
+\end{equation}
+
+As the risk-free rate, we use the 3-Month Treasury Bill Secondary Market Rate (Discount Basis), which is a commonly used proxy for the risk-free rate in econometric studies. The data are obtained from the Federal Reserve Economic Data (FRED) database: \url{https://fred.stlouisfed.org/series/DTB3}.
+
+The series is available at a daily frequency and in annualized percentage terms. It is converted to monthly frequency by taking the last observation of each month and transforming it into a monthly rate:
+
+\begin{equation}
+r_{f,t} = \frac{r_{f,t}^{(annual)}}{100 \cdot 12}.
+\end{equation}
+
+This transformation provides an approximation of the effective monthly risk-free rate.
+
+## Visualization of Time Series
+The time series in Figure @ref(fig:visualization) shows the evolution of the market return and the risk-free rate over time. The risk-free rate remains close to zero for most of the sample period and exhibits only limited variation, while the market return shows substantially higher volatility.
+
+Table @ref(tab:summary-stat) reports summary statistics of monthly stock returns. The mean return is close to zero, while the dispersion is substantial, as indicated by the standard deviation.
+
+Figure @ref(fig:stocks-dist) presents the distribution of monthly returns for a sample of stocks.
+
+```{r visualization, fig.width=5, fig.height=3, out.width="70%", fig.cap="Time Series of Market Return and Risk-Free Rate"}
+capm_data %>%
+    ggplot(aes(x = year_month)) +
+  geom_line(aes(y = market_return, color = "Market return"), linewidth = 0.8) +
+  geom_line(aes(y = rf_monthly, color = "Risk-free rate"), linewidth = 0.8) +
+  scale_color_manual(values = c("Market return" = "lightskyblue",
+                                "Risk-free rate" = "tomato")) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  scale_y_continuous(labels = scales::percent_format()) +
+
+  labs(
+    x = "Year",
+    y = "Monthly return",
+    color = ""
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+```{r summary-stat}
+capm_data %>%
+  summarise(
+    Mean = mean(stock_return, na.rm = TRUE),
+    SD = sd(stock_return, na.rm = TRUE),
+    Min = min(stock_return, na.rm = TRUE),
+    Q1 = quantile(stock_return, 0.25, na.rm = TRUE),
+    Median = median(stock_return, na.rm = TRUE),
+    Q3 = quantile(stock_return, 0.75, na.rm = TRUE),
+    Max = max(stock_return, na.rm = TRUE)
+  ) %>%
+  kable(digits = 4, caption = "Summary statistics of monthly stock returns")
+```
+
+```{r stocks-dist, fig.cap="Distribution of month returns - 10 sample stocks"}
+set.seed(1789)
+sample_stocks <- sample(unique(capm_data$ticker), 10)
+
+
+capm_data %>%
+  filter(ticker %in% sample_stocks) %>%
+  mutate(ticker = fct_reorder(ticker, stock_return, median)) %>%
+  ggplot(aes(x = ticker, y = stock_return)) +
+  geom_boxplot(fill = "lightskyblue", alpha = 0.6, outlier.size = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "",
+    x = NULL, y = "Month return"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 7)
+  )
+```
+
+## Estimate of betta coefficients of the characteristic curves
+
+For each stock, the coefficients of the characteristic curve are estimated using the following model: 
+\begin{equation}
+r_{j} - r_{f} = \alpha_{j} + \beta_{j} (r_{m} - r_{f}) + \varepsilon_{j}
+\end{equation}
+
+```{r coeficient-estimation}
+coef_characteristic_curve <- capm_data %>%
+  group_by(ticker) %>%
+  do(tidy(lm(excess_return ~ excess_market, data = .))) %>%
+  ungroup() %>%
+  filter(term %in% c("(Intercept)", "excess_market")) %>%
+  select(ticker, term, estimate, std.error, statistic, p.value) %>%
+  pivot_wider(names_from = term, 
+              values_from = c(estimate, std.error, statistic, p.value)) %>%
+  rename(
+    alpha     = `estimate_(Intercept)`,
+    beta      = estimate_excess_market,
+    alpha_se  = `std.error_(Intercept)`,
+    beta_se   = std.error_excess_market,
+    alpha_t   = `statistic_(Intercept)`,
+    beta_t    = statistic_excess_market,
+    alpha_p   = `p.value_(Intercept)`,
+    beta_p    = p.value_excess_market
+  )
+
+n_defensive_betas <- sum(coef_characteristic_curve$beta < 1)
+n_agressive_betas <- sum(coef_characteristic_curve$beta > 1)
+```
+
+The CAPM beta coefficients are obtained from time-series regressions of excess stock returns on excess market returns. The results show substantial heterogeneity in systematic risk across assets.
+
+As reported in Table \@ref(tab:tab-beta-summary), the average $\beta$ is close to one, which suggests that, on average, stocks have similar sensitivity to market movements as the market portfolio. However, individual estimates vary considerably. Some stocks have $\beta > 1$, indicating higher systematic risk, while others have $\beta < 1$ or values close to zero.
+
+Table \@ref(tab:tab-beta-summary) also reports the proportion of statistically significant coefficients at different significance levels (5%, respectively 1%). These values represent the percentage of stocks for which the null hypothesis $\beta = 0$ is rejected at the corresponding level. A higher percentage implies stronger overall evidence that market returns explain individual stock returns.
+
+The Security Characteristic Lines of selected stocks are shown in Figure \@ref(fig:scl-plot). 
+
+```{r tab-beta-summary, results='asis'}
+coef_characteristic_curve %>%
+  summarise(
+    Mean = mean(beta, na.rm = TRUE),
+    Median = median(beta, na.rm = TRUE),
+    Minimum = min(beta, na.rm = TRUE),
+    Maximum = max(beta, na.rm = TRUE),
+    `Significant (5%) [%]`  = mean(beta_p < 0.05, na.rm = TRUE) * 100,
+    `Significant (1%) [%]`  = mean(beta_p < 0.01, na.rm = TRUE) * 100
+  ) %>%
+  kable(
+    digits = 3,
+    caption = "Summary statistics of estimated CAPM beta coefficients",
+    booktabs = TRUE,
+    align = "c"
+  )
+```
+
+```{r scl-plot, fig.cap="Security Characteristic Lines of selected stocks"}
+
+set.seed(123)
+
+sample_stocks <- coef_characteristic_curve %>%
+  slice_sample(n = 6) %>%
+  pull(ticker)
+
+capm_data %>%
+  filter(ticker %in% sample_stocks) %>%
+  ggplot(aes(x = excess_market, y = excess_return)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE, color = "#d62728") +
+  facet_wrap(~ticker, scales = "free") +
+  labs(
+    x = "Excess market return",
+    y = "Excess stock return"
+  ) +
+  theme_minimal()
+```
+
+
+## Testing hypotheses on the intercept of the CAPM model
+
+For each stock, we test the hypothesis that the intercept (alpha) in the CAPM model is equal to zero:
+
+\begin{equation}
+H_0: \alpha_j = 0 \quad \text{vs.} \quad H_1: \alpha_j \neq 0
+\end{equation}
+
+The tests are conducted at the 5% significance level using t-tests based on the estimated regression coefficients.
+
+The results are summarized in Table \@ref(tab:alpha-test-summary). The null hypothesis is rejected for a subset of stocks, indicating statistically significant abnormal returns. For these assets, the intercept differs significantly from zero, suggesting that the CAPM does not fully explain their returns.
+
+However, for the majority of stocks, the intercept is not statistically different from zero. This implies that, for most assets, there is no evidence of abnormal performance once market risk is taken into account.
+
+```{r alpha-test-summary, results='asis'}
+coef_characteristic_curve %>%
+  mutate(significant_5pct = alpha_p < 0.05) %>%
+  group_by(significant_5pct) %>%
+  summarise(count = n()) %>%
+  mutate(percentage = count / sum(count) * 100) %>%
+  kable(
+    format = "latex",
+    digits = 3,
+    align = "c",
+    caption = "Test of significance of CAPM intercepts at 5% level",
+    booktabs = TRUE
+  )
