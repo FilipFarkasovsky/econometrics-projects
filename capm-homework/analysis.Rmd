@@ -485,7 +485,7 @@ The intercept $\delta_1$ is statistically significant, which suggests that avera
 
 Overall, the results provide only partial support for CAPM. The pricing of idiosyncratic risk is not supported, but the linearity assumption is violated and the intercept is significantly different from zero
 
-# Structural Breaks in CAPM
+# Structural Breaks and Asymmetry in CAPM
 
 ```{r break-setup}
 # Determine split point: last 24 months
@@ -559,13 +559,15 @@ chow_results <- capm_data %>%
   ungroup()
 ```
 ```{r chow-summary}
-chow_results %>%
+chow_summary <- chow_results %>%
   summarise(
     `Chow break — sig. at 5% [%]`    = mean(p_chow < 0.05) * 100,
     `Chow break — sig. at 1% [%]`    = mean(p_chow < 0.01) * 100,
     `Chow forecast — sig. at 5% [%]` = mean(p_fore < 0.05) * 100,
     `Chow forecast — sig. at 1% [%]` = mean(p_fore < 0.01) * 100
-  ) %>%
+  ) 
+
+chow_summary %>%
   kable(digits = 2, booktabs = TRUE, align = "c",
         caption = "Proportion of stocks with a significant structural break (\\%)") %>%
   kable_styling(latex_options = "scale_down")
@@ -720,7 +722,7 @@ asym_coefs %>%
         caption = "Asymmetric beta estimates: summary")
 ```
 
-Table 8 reports the results of the asymmetric beta estimates. The mean estimates of $\beta^{+}$ and $\beta^{-}$ are nearly identical (1.02 and 1.019), resulting in an average difference close to zero (0.001). This indicates no meaningful asymmetry in beta at the aggregate level.
+Table \@ref(tab:sml-updown-table) reports the results of the asymmetric beta estimates. The mean estimates of $\beta^{+}$ and $\beta^{-}$ are nearly identical (1.02 and 1.019), resulting in an average difference close to zero (0.001). This indicates no meaningful asymmetry in beta at the aggregate level.
 
 At the individual stock level, 8.46% of stocks show a statistically significant difference between $\beta^{+}$ and $\beta^{-}$ at the 5% level. This suggests that asymmetry is present only for a limited subset of stocks rather than being a general pattern in the sample.
 
@@ -739,14 +741,84 @@ portfolio_returns_updown <- capm_data %>%
   summarise(mean_excess_return = mean(portfolio_excess_return, na.rm = TRUE),
             .groups = "drop")
 
-portfolio_data_updown <- portfolio_betas %>%
-  left_join(portfolio_returns_updown, by = "portfolio")
+
+portfolio_assignments_asym_up <- asym_coefs %>%
+  arrange(beta_up, .by_group = TRUE) %>%
+  mutate(portfolio = ntile(beta_up, n_portfolios))
+
+portfolio_assignments_asym_down <- asym_coefs %>%
+  arrange(beta_down, .by_group = TRUE) %>%
+  mutate(portfolio = ntile(beta_down, n_portfolios)) 
+    
+
+portfolio_betas_asym_up <- portfolio_assignments_asym_up %>%
+  group_by(portfolio) %>%
+  summarise(
+    portfolio_beta = mean(beta_up, na.rm = TRUE),
+    n_stocks = n(),
+    market_state = "up",
+    .groups = "drop"
+  )
+
+portfolio_betas_asym_down <- portfolio_assignments_asym_down %>%
+  group_by(portfolio) %>%
+  summarise(
+    portfolio_beta = mean(beta_down, na.rm = TRUE),
+    n_stocks = n(),
+    market_state = "down",
+    .groups = "drop"
+  )
+
+portfolio_betas_asym <- bind_rows(
+  portfolio_betas_asym_up,
+  portfolio_betas_asym_down
+)
+
+
+
+portfolio_data_updown <- portfolio_betas_asym %>%
+  left_join(portfolio_returns_updown, by = c("portfolio", "market_state"))
 
 sml_updown <- portfolio_data_updown %>%
   group_by(market_state) %>%
   group_modify(~ tidy(lm(mean_excess_return ~ portfolio_beta, data = .x))) %>%
   ungroup()
 ```
+
+
+```{r sml-updown-premium-test}
+mean_market_premium_updown <- capm_data %>%
+  group_by(market_state) %>%
+  summarise(mean_excess_market = mean(excess_market, na.rm = TRUE), .groups = "drop")
+
+mean_premium_down <- mean_market_premium_updown %>% 
+  filter(market_state == "down") %>% pull(mean_excess_market)
+mean_premium_up <- mean_market_premium_updown %>% 
+  filter(market_state == "up") %>% pull(mean_excess_market)
+
+# Extract gamma1 estimates and SEs for each state
+gamma1_down    <- sml_updown %>% filter(market_state == "down", term == "portfolio_beta")
+gamma1_up      <- sml_updown %>% filter(market_state == "up",   term == "portfolio_beta")
+
+t_down <- (gamma1_down$estimate - mean_premium_down) / gamma1_down$std.error
+t_up   <- (gamma1_up$estimate   - mean_premium_up)   / gamma1_up$std.error
+
+p_down <- 2 * pt(-abs(t_down), df = nrow(portfolio_data_updown)/2 - 2)
+p_up   <- 2 * pt(-abs(t_up),   df = nrow(portfolio_data_updown)/2 - 2)
+
+tibble(
+  `Market state` = c("Down", "Up"),
+  `$\\hat{\\gamma}_1$` = c(gamma1_down$estimate, gamma1_up$estimate),
+  `$\\bar{r}_m - r_f$` = c(mean_premium_down, mean_premium_up),
+  `$t$-stat` = c(t_down, t_up),
+  `$p$-value` = c(p_down, p_up)
+) %>%
+  kable(digits = 4, booktabs = TRUE, align = "c", escape = FALSE,
+        caption = "Test of $\\gamma_1 = \\bar{r}_m - r_f$ by market state")
+```
+
+
+
 ```{r sml-updown-plot, fig.cap="Security Market Line: up vs. down market months"}
 portfolio_data_updown %>%
   ggplot(aes(x = portfolio_beta, y = mean_excess_return, color = market_state)) +
@@ -768,4 +840,10 @@ sml_updown %>%
         caption = "SML estimates: up vs. down market months")
 ```
 
-Table \@ref(tab:sml-updown-table) and Figure \@ref(fig:sml-updown-plot) present SML estimates conditional on market direction. The slope $\hat\gamma_1$ is larger in up-market months than in down-market months, suggesting that the beta-return relationship is stronger when the market rises. The intercept behaviour is roughly consistent with the full-sample results in Section \@ref(testing-capm-validity).
+Figure @ref(fig:sml-updown-plot) and Table @ref(tab:sml-updown-table) show the SML estimates across market regimes, while Table @ref(tab:sml-updown-premium-test) reports the test of $\gamma_1 = \bar{r}_m - r_f$.
+
+In down markets, the slope ($\gamma_1$) is negative and highly significant, indicating that higher-beta portfolios experience larger losses. The intercept ($\gamma_0$) is not statistically different from zero. The equality $\gamma_1 = \bar{r}_m - r_f$ is not rejected (p = 0.743), so the slope is consistent with the observed negative market premium.
+
+In up markets, the slope is positive and significant but smaller than the market premium, and the equality $\gamma_1 = \bar{r}_m - r_f$ is strongly rejected (p < 0.001). The intercept is positive and significant, indicating that returns are not fully explained by beta.
+
+In down markets, the CAPM restrictions are not rejected, as the slope is consistent with the market risk premium and the intercept is not statistically different from zero. In contrast, in up markets, the intercept is significantly different from zero and the slope is statistically not equal to the market risk premium, indicating a violation of the CAPM.
