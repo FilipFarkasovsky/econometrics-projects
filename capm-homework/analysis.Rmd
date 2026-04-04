@@ -2,7 +2,7 @@
 title: "Analysis of Capital Asset Pricing Model (CAPM)"
 author: 
   - "Filip Farkašovský"
-  - "(Skupina 02, Tím 08)"
+  - "(Seminar group 02, Team 19)"
 date: "`r format(Sys.Date(), '%d. %m. %Y')`"
 lang: eng
 output:
