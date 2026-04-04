@@ -13,7 +13,7 @@ output:
 
 # Abstract {-}
 
-This study examines the Capital Asset Pricing Model (CAPM) using historical stock data from S&P 500 constituents. The analysis focuses on estimating beta coefficients for individual assets and evaluating whether systematic risk adequately explains differences in expected returns.
+This study examines the CAPM using S&P 500 stock data from 2000–2026 by estimating beta coefficients and testing their ability to explain expected returns. While betas are statistically significant and vary across assets, the relationship between beta and returns is weak and sometimes inconsistent. Portfolios are constructed using equal weighting, which may introduce bias and affect the results. Overall, the findings provide only limited support for CAPM, suggesting that beta alone does not fully explain cross-sectional differences in returns.
 
 # Data Collection and Estimation of Beta Coefficients
 
@@ -163,7 +163,7 @@ capm_data %>%
 ```
 Table @ref(tab:summary-stat) reports summary statistics of monthly stock returns. The mean return is close to zero, while the dispersion is substantial, as indicated by the standard deviation.
 
-```{r summary-stat}
+```{r summary-stat, fig.show='hold', out.width='48%'}
 capm_data %>%
   summarise(
     Mean = mean(stock_return, na.rm = TRUE),
@@ -178,30 +178,6 @@ capm_data %>%
  caption = "Summary statistics of monthly stock returns")
 ```
 
-Figure @ref(fig:stocks-dist) presents the distribution of monthly returns for a sample of stocks.
-
-```{r stocks-dist, fig.cap="Distribution of month returns - 10 sample stocks"}
-set.seed(1789)
-sample_stocks <- sample(unique(capm_data$ticker), 10)
-
-
-capm_data %>%
-  filter(ticker %in% sample_stocks) %>%
-  mutate(ticker = fct_reorder(ticker, stock_return, median)) %>%
-  ggplot(aes(x = ticker, y = stock_return)) +
-  geom_boxplot(fill = "lightskyblue", alpha = 0.6, outlier.size = 0.8) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
-  scale_y_continuous(labels = scales::percent_format()) +
-  labs(
-    title = "",
-    x = NULL, y = "Month return"
-  ) +
-  theme_minimal(base_size = 10) +
-  theme(
-    plot.title = element_text(hjust = 0.5, face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 7)
-  )
-```
 
 ## Estimate of betta coefficients of the characteristic curves
 
@@ -234,11 +210,11 @@ n_defensive_betas <- sum(coef_characteristic_curve$beta < 1)
 n_agressive_betas <- sum(coef_characteristic_curve$beta > 1)
 ```
 
-The CAPM beta coefficients are obtained from time-series regressions of excess stock returns on excess market returns. The results show substantial heterogeneity in systematic risk across assets.
+The CAPM beta coefficients are estimated using time-series regressions of excess stock returns on excess market returns, revealing substantial variation in systematic risk across assets.
 
-As reported in Table \@ref(tab:tab-beta-summary), the average $\beta$ is close to one, which suggests that, on average, stocks have similar sensitivity to market movements as the market portfolio. However, individual estimates vary considerably. Some stocks have $\beta > 1$, indicating higher systematic risk, while others have $\beta < 1$ or values close to zero.
+As shown in Table @ref(tab:tab-beta-summary), the average $\beta$ is approximately 1.02, indicating that, on average, stocks exhibit similar sensitivity to market movements as the market portfolio. However, individual $\beta$ values vary considerably, ranging from 0.179 to 2.76. Some stocks therefore display low systematic risk ($\beta < 1$), while others exhibit high sensitivity ($\beta > 1$).
 
-Table \@ref(tab:tab-beta-summary) also reports the proportion of statistically significant coefficients at different significance levels (5%, respectively 1%). These values represent the percentage of stocks for which the null hypothesis $\beta = 0$ is rejected at the corresponding level. A higher percentage implies stronger overall evidence that market returns explain individual stock returns.
+As reported in Table \@ref(tab:tab-beta-summary), all estimated $\beta$ coefficients are statistically significant at the 5% level, and 98.915% remain significant at the 1% level, providing strong evidence that market returns explain individual stock returns.
 
 The Security Characteristic Lines of selected stocks are shown in Figure \@ref(fig:scl-plot). 
 
@@ -246,7 +222,7 @@ The Security Characteristic Lines of selected stocks are shown in Figure \@ref(f
 coef_characteristic_curve %>%
   summarise(
     Mean = mean(beta, na.rm = TRUE),
-    Median = median(beta, na.rm = TRUE),
+    Variance = var(beta, na.rm = TRUE),
     Minimum = min(beta, na.rm = TRUE),
     Maximum = max(beta, na.rm = TRUE),
     `Significant (5%) [%]`  = mean(beta_p < 0.05, na.rm = TRUE) * 100,
@@ -292,9 +268,7 @@ H_0: \alpha_j = 0 \quad \text{vs.} \quad H_1: \alpha_j \neq 0
 
 The tests are conducted at the 5% significance level using t-tests based on the estimated regression coefficients.
 
-The results are summarized in Table \@ref(tab:alpha-test-summary). The null hypothesis is rejected for a relatively small subset of stocks. For these few assets, the intercept differs significantly from zero, suggesting that the CAPM does not fully explain their returns.
-
-Most stocks do not have an intercept that is significantly different from zero. This means that, for most assets, there is no evidence that they generate returns beside what would be expected after accounting for market risk.
+As shown in Table @ref(tab:alpha-test-summary), the null hypothesis is rejected for only a small fraction of stocks (8.46%), while it is not rejected for the majority (91.54%). This suggests that, for most assets, the CAPM intercept is not statistically different from zero. This means that, for most assets, there is no evidence that they generate returns beside what would be expected after accounting for market risk.
 
 
 ```{r alpha-test-summary, out.width="70%"}
@@ -352,7 +326,7 @@ portfolio_data <- portfolio_betas %>%
   left_join(portfolio_returns, by = "portfolio")
 ```
 
-Figure @ref(fig:sml-plot) reveals a pattern inconsistent with CAPM. While portfolios are clearly ordered by beta, mean excess returns do not increase systematically with beta. Instead, the relationship appears hump-shaped rather than linear, suggesting a possible quadratic structure, which is tested formally in Section @ref(extended-capm-specification).
+Figure @ref(fig:sml-plot) reveals a pattern inconsistent with CAPM - mean excess returns do not increase systematically with beta. Instead, the relationship appears hump-shaped rather than linear, suggesting a possible quadratic structure, which is tested formally in Section @ref(extended-capm-specification).
 
 ## Security Market Line
 
@@ -425,19 +399,13 @@ t_stat     <- (gamma1_est - mean_market_premium) / gamma1_se
 p_val      <- 2 * pt(-abs(t_stat), df = nrow(portfolio_data) - 2)
 ```
 
-The test yields $t =$ `r round(t_stat, 3)` (p-value = `r round(p_val, 3)`), so the 
+The test yields $t =$ `r round(t_stat, 3)` (p-value < 0.0005), so the 
 hypothesis $\gamma_1 = \bar{r}_m - r_f$ is rejected at the 5% 
 level. The estimated security market line exhibits a negative slope, indicating that higher-beta portfolios do not earn higher average returns in this sample. This contradicts the standard CAPM prediction and suggests that beta alone does not adequately explain the cross-sectional variation in returns
 
 ## Extended CAPM Specification {#extended-capm-specification}
 
-Following Fama and MacBeth (1973) and Gibbons (1982), we test whether the linear CAPM specification is adequate by adding a squared beta term and a measure of idiosyncratic risk:
 
-\begin{equation}
-\bar{r}_{p} - r_f = \delta_1 + \delta_2 \hat{\beta}_p + \delta_3 \hat{\beta}_p^2 + \delta_4 \hat{\sigma}^2_{\varepsilon_p} + \varepsilon_p
-\end{equation}
-
-If CAPM holds, $\delta_3$ and $\delta_4$ should both be zero: $\delta_3 = 0$ tests for linearity, $\delta_4 = 0$ tests whether idiosyncratic risk is priced.
 ```{r extended-capm}
 # Residual variance per stock from characteristic curves
 resid_var <- capm_data %>%
@@ -474,14 +442,15 @@ tidy(extended_model) %>%
     escape = FALSE
   )
 ```
+Following Fama and MacBeth (1973) and Gibbons (1982), we test whether the linear CAPM specification is adequate by adding a squared beta term and a measure of idiosyncratic risk:
 
-Table @ref(tab:extended-capm) reports the estimates of the extended CAPM specification. The coefficient $\delta_2$ is positive and statistically significant, indicating a positive relationship between beta and returns.
+\begin{equation}
+\bar{r}_{p} - r_f = \delta_1 + \delta_2 \hat{\beta}_p + \delta_3 \hat{\beta}_p^2 + \delta_4 \hat{\sigma}^2_{\varepsilon_p} + \varepsilon_p
+\end{equation}
 
-The coefficient $\delta_3$ is statistically significant, which suggests that the relationship between returns and beta is not linear. This contradicts the standard CAPM assumption.
+If CAPM holds, $\delta_3$ and $\delta_4$ should both be zero: $\delta_3 = 0$ tests for linearity, $\delta_4 = 0$ tests whether idiosyncratic risk is priced.
 
-The coefficient $\delta_4$ is not statistically significant, indicating that idiosyncratic risk is not priced. This result is consistent with CAPM.
-
-The intercept $\delta_1$ is statistically significant, which suggests that average returns are not fully explained by beta.
+Table @ref(tab:extended-capm) reports the estimates. At the 5% significance level, $\delta_2$ is positive and statistically significant (p-value = 0.0141), indicating a positive relationship between beta and returns. The coefficient $\delta_3$ is also statistically significant (p-value = 0.0083), suggesting a non-linear relationship and rejecting the linearity assumption of CAPM. In contrast, $\delta_4$ is not statistically significant (p-value = 0.6805), indicating that idiosyncratic risk is not priced. The intercept $\delta_1$ is statistically significant (p-value = 0.0195), implying that average returns are not fully explained by beta.
 
 Overall, the results provide only partial support for CAPM. The pricing of idiosyncratic risk is not supported, but the linearity assumption is violated and the intercept is significantly different from zero
 
@@ -662,9 +631,9 @@ sml_split %>%
 
 Table \@ref(tab:sml-subperiod-table) and Figure \@ref(fig:sml-subperiod-plot) show the SML estimated separately for the early and recent subperiods. 
 
-In the early period, the intercept ($\gamma_0$) is positive and significant, while the slope ($\gamma_1$) is negative and significant, implying a downward-sloping SML and a negative relation between beta and returns. This contradicts the CAPM prediction of a positive risk–return trade-off.
+At the 5% significance level, in the early period the intercept ($\gamma_0$) is positive and statistically significant (p-value = 0.0000), while the slope ($\gamma_1$) is negative and statistically significant (p-value = 0.0020). This implies a downward-sloping SML and a negative relationship between beta and returns, which contradicts the CAPM prediction of a positive risk–return trade-off.
 
-In the recent period, the intercept is small and only weakly significant, and the slope is close to zero and not significant. This indicates no meaningful relationship between beta and returns.
+In the recent period, the intercept is not statistically significant at the 5% level (p-value = 0.0647), and the slope is also not significant (p-value = 0.9677), indicating no meaningful relationship between beta and returns.
 
 Overall, the estimated SMLs do not support the CAPM in either subperiod.
 
@@ -722,9 +691,12 @@ asym_coefs %>%
         caption = "Asymmetric beta estimates: summary")
 ```
 
-Table \@ref(tab:sml-updown-table) reports the results of the asymmetric beta estimates. The mean estimates of $\beta^{+}$ and $\beta^{-}$ are nearly identical (1.02 and 1.019), resulting in an average difference close to zero (0.001). This indicates no meaningful asymmetry in beta at the aggregate level.
+Table \@ref(tab:asymmetric-summary) reports the results of the asymmetric beta estimates. The mean estimates of $\beta^{+}$ and $\beta^{-}$ are nearly identical (1.018 and 1.021), resulting in an average difference close to zero (-0.003). This indicates no meaningful asymmetry in beta at the aggregate level.
 
-At the individual stock level, 8.46% of stocks show a statistically significant difference between $\beta^{+}$ and $\beta^{-}$ at the 5% level. This suggests that asymmetry is present only for a limited subset of stocks rather than being a general pattern in the sample.
+At the individual stock level, 17.57% of stocks show a statistically significant difference between $\beta^{+}$ and $\beta^{-}$ at the 5% level. This suggests that asymmetry may be present for some stocks, although it is not consistently observed across the sample.
+\footnote{We also considered an alternative specification of the characteristic curve without the intercept. In this case, 8.5\% of stocks exhibit a statistically significant difference between $\beta^{+}$ and $\beta^{-}$ at the 5\% significance level. The mean difference between $\beta^{+}$ and $\beta^{-}$ was 0.001, which is close to zero.}
+
+Overall, the evidence for asymmetry is mixed: while some individual stocks show significant differences, the aggregate results do not provide strong or consistent evidence of systematic asymmetry in beta.
 
 ## Security Market Line in Up and Down Markets
 ```{r sml-updown}

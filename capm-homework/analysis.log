@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.1.31)  4 APR 2026 12:56
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025) (preloaded format=pdflatex 2026.1.31)  4 APR 2026 15:26
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -691,66 +691,59 @@ File: analysis_files/figure-latex/visualization-1.pdf Graphic file (type pdf)
 Package pdftex.def Info: analysis_files/figure-latex/visualization-1.pdf  used 
 on input line 145.
 (pdftex.def)             Requested size: 328.82707pt x 183.21684pt.
-<analysis_files/figure-latex/stocks-dist-1.pdf, id=52, 353.32pt x 188.705pt>
-File: analysis_files/figure-latex/stocks-dist-1.pdf Graphic file (type pdf)
-<use analysis_files/figure-latex/stocks-dist-1.pdf>
-Package pdftex.def Info: analysis_files/figure-latex/stocks-dist-1.pdf  used on
- input line 171.
-(pdftex.def)             Requested size: 281.85587pt x 150.53804pt.
 [2{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathit.enc}{c:/texlive/2025
 /texmf-dist/fonts/enc/dvips/lm/lm-rm.enc}{c:/texlive/2025/texmf-dist/fonts/enc/
 dvips/lm/lm-mathex.enc}{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-mathsy
 .enc} <./analysis_files/figure-latex/visualization-1.pdf>]
-<analysis_files/figure-latex/scl-plot-1.pdf, id=79, 351.3125pt x 199.74625pt>
+<analysis_files/figure-latex/scl-plot-1.pdf, id=76, 351.3125pt x 199.74625pt>
 File: analysis_files/figure-latex/scl-plot-1.pdf Graphic file (type pdf)
 <use analysis_files/figure-latex/scl-plot-1.pdf>
 Package pdftex.def Info: analysis_files/figure-latex/scl-plot-1.pdf  used on in
-put line 208.
+put line 197.
 (pdftex.def)             Requested size: 281.85587pt x 160.26659pt.
-[3 <./analysis_files/figure-latex/stocks-dist-1.pdf>]
-<analysis_files/figure-latex/sml-plot-1.pdf, id=103, 351.3125pt x 203.76125pt>
+[3 <./analysis_files/figure-latex/scl-plot-1.pdf>]
+<analysis_files/figure-latex/sml-plot-1.pdf, id=100, 351.3125pt x 203.76125pt>
 File: analysis_files/figure-latex/sml-plot-1.pdf Graphic file (type pdf)
 <use analysis_files/figure-latex/sml-plot-1.pdf>
 Package pdftex.def Info: analysis_files/figure-latex/sml-plot-1.pdf  used on in
-put line 255.
+put line 242.
 (pdftex.def)             Requested size: 281.85587pt x 163.48802pt.
-[4 <./analysis_files/figure-latex/scl-plot-1.pdf>] [5 <./analysis_files/figure-
-latex/sml-plot-1.pdf>]
+[4 <./analysis_files/figure-latex/sml-plot-1.pdf>] [5]
 LaTeX Font Info:    Trying to load font information for TS1+lmr on input line 3
-52.
+33.
 (c:/texlive/2025/texmf-dist/tex/latex/lm/ts1lmr.fd
 File: ts1lmr.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 )
-<analysis_files/figure-latex/sml-subperiod-plot-1.pdf, id=143, 351.3125pt x 197
+<analysis_files/figure-latex/sml-subperiod-plot-1.pdf, id=129, 351.3125pt x 197
 .73875pt>
 File: analysis_files/figure-latex/sml-subperiod-plot-1.pdf Graphic file (type p
 df)
 <use analysis_files/figure-latex/sml-subperiod-plot-1.pdf>
 Package pdftex.def Info: analysis_files/figure-latex/sml-subperiod-plot-1.pdf  
-used on input line 379.
+used on input line 360.
 (pdftex.def)             Requested size: 281.85587pt x 158.65587pt.
-[6{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-ts1.enc}]
-<analysis_files/figure-latex/sml-updown-plot-1.pdf, id=156, 351.3125pt x 197.73
+[6{c:/texlive/2025/texmf-dist/fonts/enc/dvips/lm/lm-ts1.enc} <./analysis_files/
+figure-latex/sml-subperiod-plot-1.pdf>]
+<analysis_files/figure-latex/sml-updown-plot-1.pdf, id=151, 351.3125pt x 197.73
 875pt>
 File: analysis_files/figure-latex/sml-updown-plot-1.pdf Graphic file (type pdf)
 
 <use analysis_files/figure-latex/sml-updown-plot-1.pdf>
 Package pdftex.def Info: analysis_files/figure-latex/sml-updown-plot-1.pdf  use
-d on input line 456.
+d on input line 440.
 (pdftex.def)             Requested size: 281.85587pt x 158.65587pt.
-[7 <./analysis_files/figure-latex/sml-subperiod-plot-1.pdf>] [8 <./analysis_fil
-es/figure-latex/sml-updown-plot-1.pdf>] [9] (./analysis.aux)
+[7] [8 <./analysis_files/figure-latex/sml-updown-plot-1.pdf>] (./analysis.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 16564 strings out of 467533
- 262479 string characters out of 5423668
- 739251 words of memory out of 5000000
- 45019 multiletter control sequences out of 15000+600000
- 685162 words of font info for 142 fonts, out of 8000000 for 9000
+ 16572 strings out of 467533
+ 262202 string characters out of 5423668
+ 740195 words of memory out of 5000000
+ 45014 multiletter control sequences out of 15000+600000
+ 691636 words of font info for 150 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  83i,12n,93p,1005b,483s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmbx10.pfb><c:/texlive/2025
@@ -758,15 +751,18 @@ Here is how much of TeX's memory you used:
 type1/public/lm/lmex10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lm
 mi10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmmi5.pfb><c:/texliv
 e/2025/texmf-dist/fonts/type1/public/lm/lmmi7.pfb><c:/texlive/2025/texmf-dist/f
-onts/type1/public/lm/lmr10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/l
-m/lmr12.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr17.pfb><c:/tex
-live/2025/texmf-dist/fonts/type1/public/lm/lmr7.pfb><c:/texlive/2025/texmf-dist
-/fonts/type1/public/lm/lmsy10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/publi
-c/lm/lmsy7.pfb>
-Output written on analysis.pdf (9 pages, 386515 bytes).
+onts/type1/public/lm/lmmi8.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/l
+m/lmr10.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr12.pfb><c:/tex
+live/2025/texmf-dist/fonts/type1/public/lm/lmr17.pfb><c:/texlive/2025/texmf-dis
+t/fonts/type1/public/lm/lmr6.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public
+/lm/lmr7.pfb><c:/texlive/2025/texmf-dist/fonts/type1/public/lm/lmr8.pfb><c:/tex
+live/2025/texmf-dist/fonts/type1/public/lm/lmsy10.pfb><c:/texlive/2025/texmf-di
+st/fonts/type1/public/lm/lmsy6.pfb><c:/texlive/2025/texmf-dist/fonts/type1/publ
+ic/lm/lmsy7.pfb>
+Output written on analysis.pdf (8 pages, 431809 bytes).
 PDF statistics:
- 315 PDF objects out of 1000 (max. 8388607)
- 257 compressed objects within 3 object streams
- 51 named destinations out of 1000 (max. 500000)
- 32919 words of extra memory for PDF output out of 35830 (max. 10000000)
+ 325 PDF objects out of 1000 (max. 8388607)
+ 261 compressed objects within 3 object streams
+ 50 named destinations out of 1000 (max. 500000)
+ 37010 words of extra memory for PDF output out of 42996 (max. 10000000)
 
