@@ -47,3 +47,10 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+*.log
+capm-homework/analysis.log
+*.log
+*.log
+/ocuns-homework/Cviceni 04
+*.log
+capm-homework/analysis.log
