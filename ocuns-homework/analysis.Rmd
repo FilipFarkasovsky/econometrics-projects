@@ -56,6 +56,7 @@ library(kableExtra)
  library(stargazer)
  library(strucchange)
  library(MASS)
+library(mFilter)
 ```
 
 ```{r data-loading, include=FALSE}
@@ -101,12 +102,15 @@ y_ts <- log(Y_ts)
 
 ```{r struct-change, fig.height=6}
 t_vec <- 1:T_full                         # linear trend
+t_vec_ts <- ts(t_vec, start = c(start_yr, start_q), frequency = 4)
+
 
 # Break: 2008Q3 → index in 1995Q1-based series
 break_idx <- (2008 - 1995) * 4 + 3       # = 55
 D_t        <- ts(as.numeric(t_vec >= break_idx),
                  start = c(start_yr, start_q), frequency = 4)
-Dt_t       <- D_t * ts(t_vec, start = c(start_yr, start_q), frequency = 4)
+pom = window(t_vec_ts,start=c(2008,3),end=c(2008,3))
+Dt_t       <- D_t * (t_vec_ts - pom[1])
 
 # visual inspection
 p1 <- autoplot(y_ts) +
@@ -127,9 +131,313 @@ p2 <- autoplot(U_ts) +
 
 p1 / p2
 ```
+```{r}
+bp_y <- breakpoints(y_ts ~ t_vec_ts)
+bp_u <- breakpoints(U_ts ~ t_vec_ts)
+
+summary(bp_y)
+breakpoints(bp_y)
+
+summary(bp_u)
+breakpoints(bp_u)
+```
+
+```{r}
+# Eq. (5): y_t = β0 + β1*t + β2*D_t*t + ε1   → ŷ_t = fitted; ỹ_t = residual
+# Eq. (6): U_t = γ0 + γ1*D_t + ε2            → Û_t = fitted; Ũ_t = residual
+
+# Bind as data frame for dynlm
+df_ts <- ts.union(y_ts, U_ts, t_vec_ts, D_t, Dt_t)
+colnames(df_ts) <- c("y","U","t","D","Dt")
+
+# Equation (5)
+eq5 <- lm(y ~ t + Dt, data = as.data.frame(df_ts))
+print(summary(eq5))
+
+# Equation (6)
+eq6 <- lm(U ~ D, data = as.data.frame(df_ts))
+print(summary(eq6))
+
+# Cyclical components
+y_cycle <- ts(residuals(eq5) * 100, start = c(start_yr, start_q), frequency = 4)
+U_cycle <- ts(residuals(eq6), start = c(start_yr, start_q), frequency = 4)
+
+cat("\n  Interpretation of parameters:\n")
+cat("  Eq (5): beta0 = initial log-GDP level; beta1 = trend growth rate before break;\n")
+cat("          beta2 = change in trend growth after 2008Q3 (slope shift).\n")
+cat("          Residuals = output gap (cyclical log GDP).\n")
+cat("  Eq (6): gamma0 = natural rate before break; gamma1 = shift in natural rate after\n")
+cat("          2008Q3 (level shift). Residuals = cyclical unemployment gap.\n\n")
+
+# Plot cyclical components
+par(mfrow = c(2, 1), mar = c(3, 4, 3, 2))
+plot(y_cycle, main = "Cyclical GDP (Output Gap) — Eq. (5) residuals",
+     ylab = "Output Gap", col = "#2c5f8a", lwd = 1.5)
+abline(h = 0, lty = 2); abline(v = 2008 + 2/4, col = "red", lty = 2)
+
+plot(U_cycle, main = "Cyclical Unemployment Gap — Eq. (6) residuals",
+     ylab = "Unemployment Gap (%)", col = "#8a2c2c", lwd = 1.5)
+abline(h = 0, lty = 2); abline(v = 2008 + 2/4, col = "red", lty = 2)
+
+# ── 1f. Alternative: HP filter for comparison ─────────────────────────────────
+hp_y <- hpfilter(y_ts, freq = 1600)
+hp_U <- hpfilter(U_ts, freq = 1600)
+y_cycle_hp <- ts(hp_y$cycle * 100, start = c(start_yr, start_q), frequency = 4)
+U_cycle_hp <- ts(hp_U$cycle, start = c(start_yr, start_q), frequency = 4)
+
+par(mfrow = c(1, 1), mar = c(3, 4, 3, 2))
+plot(y_cycle, main = "Output Gap: Regression Detrend vs HP Filter",
+     ylab = "Output Gap", col = "#2c5f8a", lwd = 1.5)
+lines(y_cycle_hp, col = "#e07b00", lwd = 1.5, lty = 2)
+abline(h = 0, lty = 3)
+legend("bottomleft", legend = c("Regression detrend", "HP filter"),
+       col = c("#2c5f8a","#e07b00"), lty = c(1,2), lwd = 1.5, bty = "n")
+
+par(mfrow = c(1, 1), mar = c(3, 4, 3, 2))
+plot(U_cycle, main = "Cyclical Unemployment Gap: Regression Detrend vs HP Filter",
+     ylab = "Output Gap", col = "#2c5f8a", lwd = 1.5)
+lines(U_cycle_hp, col = "#e07b00", lwd = 1.5, lty = 2)
+abline(h = 0, lty = 3)
+legend("bottomleft", legend = c("Regression detrend", "HP filter"),
+       col = c("#2c5f8a","#e07b00"), lty = c(1,2), lwd = 1.5, bty = "n")
+
+cat("  HP-filter alternative computed (lamda=1600). Results shown in plots.\n\n")
+```
+
+```{r}
+df2 <- data.frame(
+  U_cyc = as.numeric(U_cycle_hp),
+  y_cyc = as.numeric(y_cycle_hp),
+  D     = as.numeric(D_t),
+  t     = t_vec
+)
+
+# ── 2.1 Basic static Okun — Equation (3) ─────────────────────────────────────
+cat("── Equation (3): Basic Static Okun ──────────────────────────\n")
+eq3 <- lm(U_cyc ~ y_cyc, data = df2)
+print(summary(eq3))
+cat(sprintf("  Okun coefficient (alapha): %.4f  [Expected: negative]\n\n",
+            coef(eq3)["y_cyc"]))
+
+# ── 2.2 Chow test for structural break at 2008Q3 ─────────────────────────────
+cat("── Chow Test for Structural Break at 2008Q3 ─────────────────\n")
+# Chow F-test: split sample
+df_pre  <- df2[df2$t < break_idx, ]
+df_post <- df2[df2$t >= break_idx, ]
+
+eq3_pre  <- lm(U_cyc ~ y_cyc, data = df_pre)
+eq3_post <- lm(U_cyc ~ y_cyc, data = df_post)
+eq3_full <- eq3   # already estimated
+
+RSS_pre  <- sum(residuals(eq3_pre)^2)
+RSS_post <- sum(residuals(eq3_post)^2)
+RSS_pool <- sum(residuals(eq3_full)^2)
+k        <- length(coef(eq3_full))   # number of parameters = 2
+n        <- nrow(df2)
+
+Chow_F <- ((RSS_pool - (RSS_pre + RSS_post)) / k) /
+           ((RSS_pre + RSS_post) / (n - 2 * k))
+Chow_p <- pf(Chow_F, df1 = k, df2 = n - 2 * k, lower.tail = FALSE)
+
+cat(sprintf("  Chow F-statistic : %.4f\n", Chow_F))
+cat(sprintf("  p-value          : %.4f\n", Chow_p))
+cat(sprintf("  Conclusion: %s\n\n",
+            ifelse(Chow_p < 0.05,
+                   "Reject H0 — structural break detected at 5% level.",
+                   "Fail to reject H0 — no significant structural break.")))
+
+cat("── Chow Predictive (Forecast) Test ──────────────────────────\n")
+n1 <- nrow(df_pre); n2 <- nrow(df_post)
+y_hat_post <- predict(eq3_pre, newdata = df_post)
+RSS_pred   <- sum((df_post$U_cyc - y_hat_post)^2)
+
+Chow_pred_F <- (RSS_pred / n2) / (RSS_pre / (n1 - k))
+Chow_pred_p <- pf(Chow_pred_F, df1 = n2, df2 = n1 - k, lower.tail = FALSE)
+
+cat(sprintf("  Predictive F-stat: %.4f\n", Chow_pred_F))
+cat(sprintf("  p-value          : %.4f\n", Chow_pred_p))
+cat("\n  Difference between tests:\n")
+cat("  • Chow F-test: tests equality of ALL coefficients across two sub-samples\n")
+cat("    (requires roughly equal sub-samples; sensitive to known break date).\n")
+cat("  • Predictive test: estimates on pre-break data, tests whether residuals\n")
+cat("    in post-break period are 'too large' — better when post-break period\n")
+cat("    is short and you want to preserve degrees of freedom.\n\n")
+```
+
+```{r}
+# ── 2.3 Okun with structural break dummy — Equation (3') ─────────────────────
+cat("── Equation (3'): Okun with Slope Dummy ─────────────────────\n")
+df2$Dy_cyc <- df2$D * df2$y_cyc   # slope dummy
+
+eq3p <- lm(U_cyc ~ y_cyc + Dy_cyc, data = df2)
+print(summary(eq3p))
+
+a1 <- coef(eq3p)["y_cyc"]
+a2 <- coef(eq3p)["Dy_cyc"]
+cat(sprintf("\n  Okun coefficient BEFORE 2008Q3 : alpha1         = %.4f\n", a1))
+cat(sprintf("  Okun coefficient AFTER  2008Q3 : alpha1 + alpha2   = %.4f\n", a1 + a2))
+cat(sprintf("  Change (alpha2)                    : %.4f\n\n", a2))
+```
+```{r}
+cat("── Asymmetry Test (Expansion vs Recession) ──────────────────\n")
+df2$pos_gap <- pmax(df2$y_cyc, 0)
+df2$neg_gap <- pmin(df2$y_cyc, 0)
+
+eq3_asym <- lm(U_cyc ~ pos_gap + neg_gap, data = df2)
+print(summary(eq3_asym))
+
+a_pos <- coef(eq3_asym)["pos_gap"]
+a_neg <- coef(eq3_asym)["neg_gap"]
+cat(sprintf("  Okun coef in EXPANSION (y>0): %.4f\n", a_pos))
+cat(sprintf("  Okun coef in RECESSION (y<0): %.4f\n", a_neg))
+cat(sprintf("  Asymmetry (H0: equal): F-test p-value:\n"))
+linearHypothesis_res <- tryCatch(
+  linearHypothesis(eq3_asym, "pos_gap = neg_gap"),
+  error = function(e) NULL
+)
+if (!is.null(linearHypothesis_res)) print(linearHypothesis_res)
+
+par(mfrow = c(1, 1))
+plot(df2$y_cyc, df2$U_cyc,
+     main = "Cyclical Unemployment vs Output Gap",
+     xlab = "Output Gap (log GDP cycle)", ylab = "Unemployment Gap (%)",
+     col = ifelse(df2$D == 0, "#2c5f8a", "#8a2c2c"), pch = 16, cex = 0.8)
+abline(eq3_pre,  col = "#2c5f8a", lwd = 2)
+abline(eq3_post, col = "#8a2c2c", lwd = 2)
+legend("topright",
+       legend = c("Pre-2008Q3", "Post-2008Q3"),
+       col = c("#2c5f8a","#8a2c2c"), pch = 16, lwd = 2, bty = "n")
+```
+
+```{r}
+# Convert to ts for dynlm
+U_cyc_ts <- ts(df2$U_cyc, start = c(start_yr, start_q), frequency = 4)
+y_cyc_ts <- ts(df2$y_cyc, start = c(start_yr, start_q), frequency = 4)
+D_ts     <- ts(df2$D,     start = c(start_yr, start_q), frequency = 4)
+
+# ── 3.1 Select optimal lag via IC for baseline dynamic model (Eq. 7) ──────────
+# U*_t = Σ δi*U*_{t-i} + Σ β_i*y_{t-i} + ε
+cat("── Information Criteria for Lag Selection ───────────────────\n")
+max_lag <- 10
+ic_table <- data.frame(k = 1:max_lag, AIC = NA, BIC = NA)
+
+for (k in 1:max_lag) {
+  fit_k <- dynlm(U_cyc_ts ~ L(U_cyc_ts, 1:k) + L(y_cyc_ts, 1:k))
+  if (!is.null(fit_k)) {
+    ic_table$AIC[k] <- AIC(fit_k)
+    ic_table$BIC[k] <- BIC(fit_k)
+  }
+}
+print(ic_table)
+
+opt_k_AIC <- ic_table$k[which.min(ic_table$AIC)]
+opt_k_BIC <- ic_table$k[which.min(ic_table$BIC)]
+cat(sprintf("  Optimal lag by AIC: k = %d\n", opt_k_AIC))
+cat(sprintf("  Optimal lag by BIC: k = %d\n\n", opt_k_BIC))
+
+# Use BIC-selected lag for primary results (more parsimonious)
+k_opt <- opt_k_BIC
+```
 
 
+```{r}
+# ── 3.2 Estimate dynamic Okun — Equation (7) ─────────────────────────────────
+cat(sprintf("── Equation (7): Dynamic Okun (k = %d lags) ─────────────────\n", k_opt))
 
-Monthly returns are computed from end-of-month prices as logarithic returns:
+eq7 <- dynlm(U_cyc_ts ~ L(U_cyc_ts, 1:k_opt) + L(y_cyc_ts, 1:k_opt))
+print(summary(eq7))
+
+# Long-run coefficient: LR = Σβ_i / (1 - Σδ_i)
+compute_LR <- function(model, k, prefix_y = "L(y_cyc_ts, ", prefix_U = "L(U_cyc_ts, ") {
+      delta <- coef(model)
+    # indices
+    idx_U <- 2:(k_opt + 1)
+    idx_Y <- (k_opt + 2):(2 * k_opt + 1)
+    
+    # long-run Okun coefficient
+    a_LR <- sum(delta[idx_Y]) / (1 - sum(delta[idx_U]))
+    a_LR
+}
+
+lr7 <- compute_LR(eq7, k_opt)
+cat(sprintf("  Long-Run Okun coefficient: %.4f\n\n", lr7))
+
+opt_k_AIC <- 2
+# Robustness: AIC-optimal lag
+if (opt_k_AIC != opt_k_BIC) {
+  cat(sprintf("── Robustness: Dynamic Okun with AIC lag k=%d ────────────────\n", opt_k_AIC))
+  eq7_AIC <- dynlm(U_cyc_ts ~ L(U_cyc_ts, 1:opt_k_AIC) + L(y_cyc_ts, 1:opt_k_AIC))
+  print(summary(eq7_AIC))
+
+  lr7_AIC <- compute_LR(eq7_AIC, opt_k_AIC)
+  cat(sprintf("  Long-Run Okun (AIC lags): %.4f\n\n", lr7_AIC))
+}
+```
+
+```{r}
+# ── 3.3 Structural break in dynamic model — Equation (7') ────────────────────
+cat("── Equation (7'): Dynamic Okun with Structural Break ────────\n")
+cat("   Case A: Break in output gap lags only\n\n")
+
+# Slope dummies: D*L(U), D*L(y) for each lag
+# Case A: only y-lags get slope dummy
+build_dynamic_break_formula <- function(k, break_U = FALSE, break_y = TRUE) {
+  rhs <- paste(
+    paste0("L(U_cyc_ts, 1:", k, ")"),
+    paste0("L(y_cyc_ts, 1:", k, ")"),
+    if (break_U) paste0("I(D_ts * L(U_cyc_ts, 1:", k, "))") else NULL,
+    if (break_y) paste0("I(D_ts * L(y_cyc_ts, 1:", k, "))") else NULL,
+    sep = " + "
+  )
+  
+  as.formula(paste("U_cyc_ts ~", rhs))
+}
+```
+
+
+```{r}
+# Case A: Break in y lags only
+eq7p_A <- dynlm(build_dynamic_break_formula(k_opt, break_U = FALSE, break_y = TRUE))
+print(summary(eq7p_A))
+
+# LR before break: Σβ_i / (1 - Σδ_i)
+# LR after break : Σ(β_i + γ_i) / (1 - Σδ_i)
+compute_LR_break_A <- function(model, k) {
+  coefs <- coef(model)
+  beta_names  <- paste0("L(y_cyc_ts, ", 1:k, ")")
+  gamma_names <- paste0("I(D_ts * L(y_cyc_ts, ", 1:k, "))")
+  delta_names <- paste0("L(U_cyc_ts, ", 1:k, ")")
+
+  # handle dynlm naming (no space)
+  all_names <- names(coefs)
+  get_coef <- function(pattern_vec) {
+    sapply(pattern_vec, function(p) {
+      idx <- grep(gsub(" ", "", p, fixed = TRUE),
+                  gsub(" ", "", all_names, fixed = TRUE), fixed = TRUE)
+      if (length(idx) == 1) coefs[idx] else 0
+    })
+  }
+  betas  <- get_coef(beta_names)
+  gammas <- get_coef(gamma_names)
+  deltas <- get_coef(delta_names)
+
+  sum_beta  <- sum(betas)
+  sum_gamma <- sum(gammas)
+  sum_delta <- sum(deltas)
+
+  LR_pre  <- sum_beta / (1 - sum_delta)
+  LR_post <- (sum_beta + sum_gamma) / (1 - sum_delta)
+  list(LR_pre = LR_pre, LR_post = LR_post,
+       sum_delta = sum_delta, sum_beta = sum_beta, sum_gamma = sum_gamma)
+}
+
+lr_A <- compute_LR_break_A(eq7p_A, k_opt)
+cat(sprintf("  Case A — LR Okun BEFORE 2008Q3: %.4f\n", lr_A$LR_pre))
+cat(sprintf("  Case A — LR Okun AFTER  2008Q3: %.4f\n\n", lr_A$LR_post))
+
+cat("   Case B: Break in both output gap AND unemployment lags\n\n")
+eq7p_B <- dynlm(build_dynamic_break_formula(k_opt, break_U = TRUE, break_y = TRUE))
+print(summary(eq7p_B))
+```
 
 
