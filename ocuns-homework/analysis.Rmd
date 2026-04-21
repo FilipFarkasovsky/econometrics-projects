@@ -1,5 +1,5 @@
 ---
-title: "Analysis of Capital Asset Pricing Model (CAPM)"
+title: "Okun’s Law in Switzerland: Cyclical Dynamics and Structural Stability"
 author: 
   - "Filip Farkašovský"
   - "(Seminar group 02, Team 19)"
@@ -13,7 +13,11 @@ output:
 
 # Abstract {-}
 
-This study examines the CAPM using S&P 500 stock data from 2000–2026 by estimating beta coefficients and testing their ability to explain expected returns. While betas are statistically significant and vary across assets, the relationship between beta and returns is weak and sometimes inconsistent. Portfolios are constructed using equal weighting, which may introduce bias and affect the results. Overall, the findings provide only limited support for CAPM, suggesting that beta alone does not fully explain cross-sectional differences in returns.
+This study examines the CAPM using S&P 500 stock data from 2000–2026 by estimating beta coefficients and testing their ability to explain expected returns. 
+
+https://www.bfs.admin.ch/bfs/en/home/statistics/work-income/unemployment-underemployment/ilo-unemployed.html
+
+https://www.seco.admin.ch/seco/en/home/wirtschaftslage---wirtschaftspolitik/Wirtschaftslage/bip-quartalsschaetzungen-/daten.html
 
 # Data Collection and Estimation of Beta Coefficients
 
@@ -43,779 +47,89 @@ library(dplyr)
 library(ggplot2)
 library(car)
 library(kableExtra)
+
+
+ library(ggfortify)
+ library(dynlm)
+ library(patchwork)
+ library(tstools)
+ library(stargazer)
+ library(strucchange)
+ library(MASS)
 ```
 
 ```{r data-loading, include=FALSE}
 rm(list = ls())
+cat("\014")
 
-# Load and preprocess stock dataset
-unzip("SP500_Historical_Data.zip")
-stocks <- read_csv("SP500_Historical_Data.csv") %>% 
-    mutate(ticker = factor(Ticker),
-           date = as.Date(Date),
-           close = as.numeric(Close)) %>%
-    arrange(ticker, date)
-
-# Monthly prices
-stocks <- stocks %>%
-  mutate(year_month = floor_date(date, "month")) %>%
-  arrange(ticker, year_month) %>%
-  group_by(ticker, year_month) %>%
-  summarise(price = last(close[!is.na(close)]), .groups = "drop") 
-
-# Load and preprocess DTB3 dataset
-risk_free_rate <- read_csv("DTB3.csv") %>%
-  mutate(
-    date = as.Date(observation_date),
-    rf_annual = as.numeric(DTB3)
+my_path <- file.path(getwd(), 'ds-e-03.03.01a.csv')
+unemployment <- read_delim(my_path, 
+     delim = ";", escape_double = FALSE, col_types = cols(PERIOD = col_date(format = "%d.%m.%Y")), 
+     trim_ws = TRUE)%>%
+    dplyr::select(PERIOD, `seasonally adjusted`) %>%  mutate(
+    year = year(PERIOD),
+    quarter = quarter(PERIOD)
   ) %>%
-  mutate(year_month = floor_date(date, "month")) %>%
-  group_by(year_month) %>%
-  summarise(rf_annual = last(rf_annual[!is.na(rf_annual)]), .groups = "drop") %>%
-  mutate(rf_monthly = (rf_annual / 100) / 12)
+  rename(u = `seasonally adjusted`)
+    
+    
+my_path <- file.path(getwd(), 'ch_seco_gdp.csv')
+gdp <- read_csv(my_path)
+gdp <- gdp %>% filter(gdp$seas_adj == 'csa' & gdp$type =='real' & structure == "gdp") %>%
+    dplyr::select(date, value) %>%
+    mutate(
+    year = year(date),
+    quarter = quarter(date)
+  ) %>% 
+  rename(gdp = value)
 
-# Join datasets and filter stock with few samples
-capm_data <- stocks %>%
-  left_join(risk_free_rate, by = "year_month")
+data <- inner_join(gdp, unemployment, by = c("year", "quarter"))
 
-n_before <- capm_data %>%
-  summarise(n_tickers = n_distinct(ticker)) %>%
-  pull(n_tickers)
+data <- data %>%
+  filter(year >= 1995, year <= 2025) %>%
+  dplyr::select(year, quarter, gdp, u)
 
-# Filter stocks with insufficient number of observations
-capm_data <- capm_data %>%
-  group_by(ticker) %>%
-  filter(!is.na(price)) %>%
-  filter(n() >= 60) %>%
-  ungroup()
+T_full <- length(data$gdp)
+start_yr <- 1995; start_q <- 1
 
-n_after <- capm_data %>%
-  summarise(n_tickers = n_distinct(ticker)) %>%
-  pull(n_tickers)
+Y_ts <- ts(data$gdp, start = c(start_yr, start_q), frequency = 4)
+U_ts <- ts(data$u,   start = c(start_yr, start_q), frequency = 4)
 
-# Logaritmical monthly revenue
-capm_data <- capm_data %>%
-  arrange(ticker, year_month) %>%
-  group_by(ticker) %>%
-  mutate(stock_return = log(price / lag(price))) %>%
-  filter(!is.na(stock_return)) %>%
-  ungroup()
-
-# Obtain market returns for equal weighted stock portfolio
-market_returns <- capm_data %>%
-  group_by(year_month) %>%
-  summarise(market_return = mean(stock_return), .groups = "drop")
-
-capm_data <- capm_data %>%
-  left_join(market_returns, by = "year_month")
-
-# Add excess returns 
-capm_data <- capm_data %>%
-  mutate(
-    excess_return = stock_return - rf_monthly,
-    excess_market = market_return - rf_monthly
-  )
+# Log of real GDP
+y_ts <- log(Y_ts)
 ```
 
-We use a dataset containing historical daily stock price data for 472 current S&P 500 companies, covering the period from January 2000 to February 2026. This dataset is one of the most comprehensive freely available S&P 500 datasets on Kaggle, consisting of approximately 2.7 million observations over 26 years of U.S. equity market history. The dataset is available at: \url{https://www.kaggle.com/datasets/jacksaleeby/s-and-p500-historical-data}. To ensure sufficient time series length for reliable beta estimation, we retain only stocks with at least 60 monthly observations. After applying this filter, the dataset is reduced from `r n_before` stocks to `r n_after` stocks.
+```{r struct-change, fig.height=6}
+t_vec <- 1:T_full                         # linear trend
+
+# Break: 2008Q3 → index in 1995Q1-based series
+break_idx <- (2008 - 1995) * 4 + 3       # = 55
+D_t        <- ts(as.numeric(t_vec >= break_idx),
+                 start = c(start_yr, start_q), frequency = 4)
+Dt_t       <- D_t * ts(t_vec, start = c(start_yr, start_q), frequency = 4)
+
+# visual inspection
+p1 <- autoplot(y_ts) +
+  labs(
+    title = "Switzerland: Log Real GDP (1995Q1–2025Q4)",
+    x = "Time",
+    y = "Log GDP"
+  ) +
+  theme_minimal()
+
+p2 <- autoplot(U_ts) +
+  labs(
+    title = "Switzerland: Unemployment Rate (1995Q1–2025Q4)",
+    x = "Time",
+    y = "Unemployment (%)"
+  ) +
+  theme_minimal()
+
+p1 / p2
+```
+
+
 
 Monthly returns are computed from end-of-month prices as logarithic returns:
 
-\begin{equation}
-r_{j,t} = \ln\left(\frac{P_{j,t}}{P_{j,t-1}}\right)
-\end{equation}
 
-As the risk-free rate, we use the 3-Month Treasury Bill Secondary Market Rate (Discount Basis), which is a commonly used proxy for the risk-free rate in econometric studies. The data are obtained from the Federal Reserve Economic Data (FRED) database: \url{https://fred.stlouisfed.org/series/DTB3}.
-
-The series is available at a daily frequency and in annualized percentage terms. It is converted to monthly frequency by taking the last observation of each month and transforming it into a monthly rate:
-
-\begin{equation}
-r_{f,t} = \frac{r_{f,t}^{(annual)}}{100 \cdot 12}.
-\end{equation}
-
-This transformation provides an approximation of the effective monthly risk-free rate.
-
-## Visualization of Time Series
-The time series in Figure @ref(fig:visualization) shows the evolution of the market return and the risk-free rate over time. The risk-free rate remains close to zero for most of the sample period and exhibits only limited variation, while the market return shows substantially higher volatility.
-
-
-```{r visualization, fig.width=5, fig.height=3, out.width="70%", fig.cap="Time Series of Market Return and Risk-Free Rate"}
-capm_data %>%
-    ggplot(aes(x = year_month)) +
-  geom_line(aes(y = market_return, color = "Market return"), linewidth = 0.8) +
-  geom_line(aes(y = rf_monthly, color = "Risk-free rate"), linewidth = 0.8) +
-  scale_color_manual(values = c("Market return" = "lightskyblue",
-                                "Risk-free rate" = "tomato")) +
-  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
-  scale_y_continuous(labels = scales::percent_format()) +
-
-  labs(
-    x = "Year",
-    y = "Monthly return",
-    color = ""
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    legend.position = "bottom",
-    plot.title = element_text(face = "bold", hjust = 0.5),
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
-```
-Table @ref(tab:summary-stat) reports summary statistics of monthly stock returns. The mean return is close to zero, while the dispersion is substantial, as indicated by the standard deviation.
-
-```{r summary-stat, fig.show='hold', out.width='48%'}
-capm_data %>%
-  summarise(
-    Mean = mean(stock_return, na.rm = TRUE),
-    SD = sd(stock_return, na.rm = TRUE),
-    Min = min(stock_return, na.rm = TRUE),
-    Q1 = quantile(stock_return, 0.25, na.rm = TRUE),
-    Median = median(stock_return, na.rm = TRUE),
-    Q3 = quantile(stock_return, 0.75, na.rm = TRUE),
-    Max = max(stock_return, na.rm = TRUE)
-  ) %>%
-  kable(digits = 4,booktabs = TRUE,
- caption = "Summary statistics of monthly stock returns")
-```
-
-
-## Estimate of betta coefficients of the characteristic curves
-
-For each stock, the coefficients of the characteristic curve are estimated using the following model: 
-\begin{equation}
-r_{j} - r_{f} = \alpha_{j} + \beta_{j} (r_{m} - r_{f}) + \varepsilon_{j}
-\end{equation}
-
-```{r coeficient-estimation}
-coef_characteristic_curve <- capm_data %>%
-  group_by(ticker) %>%
-  do(tidy(lm(excess_return ~ excess_market, data = .))) %>%
-  ungroup() %>%
-  filter(term %in% c("(Intercept)", "excess_market")) %>%
-  select(ticker, term, estimate, std.error, statistic, p.value) %>%
-  pivot_wider(names_from = term, 
-              values_from = c(estimate, std.error, statistic, p.value)) %>%
-  rename(
-    alpha     = `estimate_(Intercept)`,
-    beta      = estimate_excess_market,
-    alpha_se  = `std.error_(Intercept)`,
-    beta_se   = std.error_excess_market,
-    alpha_t   = `statistic_(Intercept)`,
-    beta_t    = statistic_excess_market,
-    alpha_p   = `p.value_(Intercept)`,
-    beta_p    = p.value_excess_market
-  )
-
-n_defensive_betas <- sum(coef_characteristic_curve$beta < 1)
-n_agressive_betas <- sum(coef_characteristic_curve$beta > 1)
-```
-
-The CAPM beta coefficients are estimated using time-series regressions of excess stock returns on excess market returns, revealing substantial variation in systematic risk across assets.
-
-As shown in Table @ref(tab:tab-beta-summary), the average $\beta$ is approximately 1.02, indicating that, on average, stocks exhibit similar sensitivity to market movements as the market portfolio. However, individual $\beta$ values vary considerably, ranging from 0.179 to 2.76. Some stocks therefore display low systematic risk ($\beta < 1$), while others exhibit high sensitivity ($\beta > 1$).
-
-As reported in Table \@ref(tab:tab-beta-summary), all estimated $\beta$ coefficients are statistically significant at the 5% level, and 98.915% remain significant at the 1% level, providing strong evidence that market returns explain individual stock returns.
-
-The Security Characteristic Lines of selected stocks are shown in Figure \@ref(fig:scl-plot). 
-
-```{r tab-beta-summary}
-coef_characteristic_curve %>%
-  summarise(
-    Mean = mean(beta, na.rm = TRUE),
-    Variance = var(beta, na.rm = TRUE),
-    Minimum = min(beta, na.rm = TRUE),
-    Maximum = max(beta, na.rm = TRUE),
-    `Significant (5%) [%]`  = mean(beta_p < 0.05, na.rm = TRUE) * 100,
-    `Significant (1%) [%]`  = mean(beta_p < 0.01, na.rm = TRUE) * 100
-  ) %>%
-  kable(
-    digits = 3,
-    caption = "Summary statistics of estimated CAPM beta coefficients",
-    booktabs = TRUE,
-    align = "c"
-  )
-```
-
-```{r scl-plot, fig.cap="Security Characteristic Lines of selected stocks"}
-
-set.seed(123)
-
-sample_stocks <- coef_characteristic_curve %>%
-  slice_sample(n = 6) %>%
-  pull(ticker)
-
-capm_data %>%
-  filter(ticker %in% sample_stocks) %>%
-  ggplot(aes(x = excess_market, y = excess_return)) +
-  geom_point(alpha = 0.3) +
-  geom_smooth(method = "lm", se = FALSE, color = "#d62728") +
-  facet_wrap(~ticker, scales = "free") +
-  labs(
-    x = "Excess market return",
-    y = "Excess stock return"
-  ) +
-  theme_minimal()
-```
-
-
-## Testing hypotheses on the intercept of the CAPM model
-
-For each stock, we test the hypothesis that the intercept (alpha) in the CAPM model is equal to zero:
-
-\begin{equation}
-H_0: \alpha_j = 0 \quad \text{vs.} \quad H_1: \alpha_j \neq 0
-\end{equation}
-
-The tests are conducted at the 5% significance level using t-tests based on the estimated regression coefficients.
-
-As shown in Table @ref(tab:alpha-test-summary), the null hypothesis is rejected for only a small fraction of stocks (8.46%), while it is not rejected for the majority (91.54%). This suggests that, for most assets, the CAPM intercept is not statistically different from zero. This means that, for most assets, there is no evidence that they generate returns beside what would be expected after accounting for market risk.
-
-
-```{r alpha-test-summary, out.width="70%"}
-library(gt)
-
-coef_characteristic_curve %>%
-  mutate(`Significant on 5%` = alpha_p < 0.05) %>%
-  group_by(`Significant on 5%`) %>%
-  summarise(count = n()) %>%
-  mutate(percentage = count / sum(count) * 100) %>%
-  kable(
-    digits = 2,
-    booktabs = TRUE,
-    align = "c",
-    caption = "CAPM intercept significance (5\\% level)"
-  )
-```
-
-
-# Testing CAPM Validity
-
-## Portfolio Formation and Beta Aggregation
-
-Stocks are sorted by their estimated $\beta$ coefficients and assigned to 20 portfolios of roughly equal size. Each portfolio is equally weighted, so the portfolio beta is the arithmetic mean of individual betas. Portfolio excess returns are computed as the time-series average of equally weighted stock excess returns over the full sample period.
-```{r portfolio-formation}
-n_portfolios <- 20
-
-portfolio_assignments <- coef_characteristic_curve %>%
-  arrange(beta) %>%
-  mutate(portfolio = ntile(beta, n_portfolios))
-
-portfolio_returns <- capm_data %>%
-  left_join(portfolio_assignments %>% select(ticker, portfolio), by = "ticker") %>%
-  filter(!is.na(portfolio)) %>%
-  group_by(portfolio, year_month) %>%
-  summarise(
-    portfolio_excess_return = mean(excess_return, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  group_by(portfolio) %>%
-  summarise(
-    mean_excess_return = mean(portfolio_excess_return, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-portfolio_betas <- portfolio_assignments %>%
-  group_by(portfolio) %>%
-  summarise(
-    portfolio_beta = mean(beta, na.rm = TRUE),
-    n_stocks = n(),
-    .groups = "drop"
-  )
-
-portfolio_data <- portfolio_betas %>%
-  left_join(portfolio_returns, by = "portfolio")
-```
-
-Figure @ref(fig:sml-plot) reveals a pattern inconsistent with CAPM - mean excess returns do not increase systematically with beta. Instead, the relationship appears hump-shaped rather than linear, suggesting a possible quadratic structure, which is tested formally in Section @ref(extended-capm-specification).
-
-## Security Market Line
-
-
-```{r sml-estimation}
-mean_market_premium <- capm_data %>%
-  summarise(mean_excess_market = mean(excess_market, na.rm = TRUE)) %>%
-  pull(mean_excess_market)
-
-sml_model <- lm(mean_excess_return ~ portfolio_beta, data = portfolio_data)
-sml_summary <- tidy(sml_model)
-
-gamma0 <- sml_summary$estimate[1]
-gamma1 <- sml_summary$estimate[2]
-gamma0_p <- sml_summary$p.value[1]
-gamma1_p <- sml_summary$p.value[2]
-```
-```{r sml-plot, fig.cap="Security Market Line estimated from portfolio data"}
-portfolio_data %>%
-  ggplot(aes(x = portfolio_beta, y = mean_excess_return)) +
-  geom_point(size = 2.5, color = "steelblue") +
-  geom_smooth(method = "lm", se = TRUE, color = "#d62728", linewidth = 0.8) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  labs(
-    x = expression(hat(beta)[p]),
-    y = "Mean excess return"
-  ) +
-  theme_minimal(base_size = 12)
-```
-```{r sml-table}
-sml_summary %>%
-  mutate(term = c("$\\gamma_0$", "$\\gamma_1$")) %>%
-  kable(
-    digits = 4,
-    col.names = c("Term", "Estimate", "Std. Error", "t-statistic", "p-value"),
-    caption = "Security Market Line regression results",
-    booktabs = TRUE,
-    align = "c",
-    escape = FALSE
-  )
-```
-
-The Security Market Line (SML) is estimated by regressing mean portfolio excess returns on portfolio betas:
-
-\begin{equation}
-r_{p_i} - r_f = \gamma_0 + \gamma_1 \beta_{p_{i}} + \varepsilon_{p_{i}}
-\end{equation}
-
-The estimated $\hat{\gamma}_0 =$ `r round(gamma0, 4)` (`r ifelse(gamma0_p < 0.05, "statistically significant", "not significant")` at 5%) and $\hat{\gamma}_1 =$ `r round(gamma1, 4)` (`r ifelse(gamma1_p < 0.05, "statistically significant", "not significant")` at 5%).
-The observed mean market risk premium over the sample period is `r round(mean_market_premium, 4)`.
-
-CAPM imposes two testable restrictions on the SML. First, $\gamma_0$ should be zero, since if portfolio excess returns are fully explained by systematic risk, no intercept should remain. 
-Second, $\gamma_1$ should equal the observed market risk premium $\bar{r}_m - r_f$.
-
-The intercept $\hat{\gamma}_0$ is `r ifelse(gamma0_p < 0.05, "statistically significant 
-at the 5% level, which rejects the first CAPM restriction — some component of portfolio 
-returns is not explained by market risk alone", "not statistically significant at the 5% 
-level, consistent with the first CAPM restriction")`.
-
-To test the second restriction, we assess whether $\gamma_1 = \bar{r}_m - r_f$ using a 
-t-test:
-\begin{equation}
-t = \frac{\hat{\gamma}_1 - (\bar{r}_m - r_f)}{se(\hat{\gamma}_1)}
-\end{equation}
-
-```{r sml-gamma1-test}
-gamma1_est <- sml_summary$estimate[2]
-gamma1_se  <- sml_summary$std.error[2]
-t_stat     <- (gamma1_est - mean_market_premium) / gamma1_se
-p_val      <- 2 * pt(-abs(t_stat), df = nrow(portfolio_data) - 2)
-```
-
-The test yields $t =$ `r round(t_stat, 3)` (p-value < 0.0005), so the 
-hypothesis $\gamma_1 = \bar{r}_m - r_f$ is rejected at the 5% 
-level. The estimated security market line exhibits a negative slope, indicating that higher-beta portfolios do not earn higher average returns in this sample. This contradicts the standard CAPM prediction and suggests that beta alone does not adequately explain the cross-sectional variation in returns
-
-## Extended CAPM Specification {#extended-capm-specification}
-
-
-```{r extended-capm}
-# Residual variance per stock from characteristic curves
-resid_var <- capm_data %>%
-  group_by(ticker) %>%
-  do({
-    m <- lm(excess_return ~ excess_market, data = .)
-    tibble(sigma2_eps = var(resid(m)))
-  }) %>%
-  ungroup()
-
-# Aggregate to portfolios
-portfolio_sigma2 <- portfolio_assignments %>%
-  left_join(resid_var, by = "ticker") %>%
-  group_by(portfolio) %>%
-  summarise(sigma2_eps = mean(sigma2_eps, na.rm = TRUE), .groups = "drop")
-
-portfolio_data_ext <- portfolio_data %>%
-  left_join(portfolio_sigma2, by = "portfolio") %>%
-  mutate(beta2 = portfolio_beta^2)
-
-extended_model <- lm(
-  mean_excess_return ~ portfolio_beta + beta2 + sigma2_eps,
-  data = portfolio_data_ext
-)
-
-tidy(extended_model) %>%
-  mutate(term = c("$\\delta_1$", "$\\delta_2$", "$\\delta_3$", "$\\delta_4$")) %>%
-  kable(
-    digits = 4,
-    col.names = c("Term", "Estimate", "Std. Error", "t-statistic", "p-value"),
-    caption = "Extended CAPM specification (Fama-MacBeth/Gibbons)",
-    booktabs = TRUE,
-    align = "c",
-    escape = FALSE
-  )
-```
-Following Fama and MacBeth (1973) and Gibbons (1982), we test whether the linear CAPM specification is adequate by adding a squared beta term and a measure of idiosyncratic risk:
-
-\begin{equation}
-\bar{r}_{p} - r_f = \delta_1 + \delta_2 \hat{\beta}_p + \delta_3 \hat{\beta}_p^2 + \delta_4 \hat{\sigma}^2_{\varepsilon_p} + \varepsilon_p
-\end{equation}
-
-If CAPM holds, $\delta_3$ and $\delta_4$ should both be zero: $\delta_3 = 0$ tests for linearity, $\delta_4 = 0$ tests whether idiosyncratic risk is priced.
-
-Table @ref(tab:extended-capm) reports the estimates. At the 5% significance level, $\delta_2$ is positive and statistically significant (p-value = 0.0141), indicating a positive relationship between beta and returns. The coefficient $\delta_3$ is also statistically significant (p-value = 0.0083), suggesting a non-linear relationship and rejecting the linearity assumption of CAPM. In contrast, $\delta_4$ is not statistically significant (p-value = 0.6805), indicating that idiosyncratic risk is not priced. The intercept $\delta_1$ is statistically significant (p-value = 0.0195), implying that average returns are not fully explained by beta.
-
-Overall, the results provide only partial support for CAPM. The pricing of idiosyncratic risk is not supported, but the linearity assumption is violated and the intercept is significantly different from zero
-
-# Structural Breaks and Asymmetry in CAPM
-
-```{r break-setup}
-# Determine split point: last 24 months
-max_date <- max(capm_data$year_month)
-break_date <- max_date %m-% months(48)
-
-capm_data <- capm_data %>%
-  mutate(
-    period = if_else(year_month > break_date, "recent", "early"),
-    post   = as.integer(year_month > break_date),
-    excess_market_post = excess_market * post
-  )
-```
-
-## Chow Tests on Individual Characteristic Curves
-
-The CAPM characteristic curve is reformulated to allow for a change in $\beta$ over the last 48 months of the sample:
-
-\begin{equation}
-r_{j} - r_{f} = \alpha_{j} + \beta_{j}(r_{m} - r_{f}) + \delta_{j} \cdot D_t \cdot (r_{m} - r_{f}) + \varepsilon_{j}
-\end{equation}
-
-where $D_t = 1$ if $t$ falls in the last 48 months, and zero otherwise. Two variants of the Chow test are applied to each stock:
-
-- **Chow structural break test**: tests whether all coefficients are identical across the two subperiods, using the full-sample residual sum of squares and the sum from two separate regressions.
-- **Chow forecast (predictive) test**: tests whether the model estimated on the early period predicts returns in the recent period.
-
-```{r chow-tests}
-library(strucchange)
-
-n_kept <- capm_data %>%
-  group_by(ticker) %>%
-  filter(sum(post == 0) >= 10, sum(post == 1) >= 5) %>%
-  summarise() %>%
-  nrow()
-
-chow_results <- capm_data %>%
-  group_by(ticker) %>%
-  filter(sum(post == 0) >= 10, sum(post == 1) >= 5) %>%
-  group_modify(~ {
-    df <- .x %>% arrange(year_month)
-    n_early  <- sum(df$post == 0)
-    n_total  <- nrow(df)
-    
-    m_full  <- lm(excess_return ~ excess_market, data = df)
-    m_early <- lm(excess_return ~ excess_market, data = filter(df, post == 0))
-    m_late  <- lm(excess_return ~ excess_market, data = filter(df, post == 1))
-    
-    rss_full  <- sum(resid(m_full)^2)
-    rss_early <- sum(resid(m_early)^2)
-    rss_late  <- sum(resid(m_late)^2)
-    
-    k  <- 2
-    df_full <- n_total - 2 * k
-    
-    # Chow structural break test
-    F_chow <- ((rss_full - rss_early - rss_late) / k) /
-              ((rss_early + rss_late) / df_full)
-    p_chow <- pf(F_chow, k, df_full, lower.tail = FALSE)
-    
-    # Chow forecast test
-    n_pred  <- sum(df$post == 1)
-    df_fore <- n_early - k
-    F_fore  <- ((rss_full - rss_early) / n_pred) /
-               (rss_early / df_fore)
-    p_fore  <- pf(F_fore, n_pred, df_fore, lower.tail = FALSE)
-    
-    tibble(F_chow = F_chow, p_chow = p_chow,
-           F_fore = F_fore, p_fore = p_fore)
-  }) %>%
-  ungroup()
-```
-```{r chow-summary}
-chow_summary <- chow_results %>%
-  summarise(
-    `Chow break — sig. at 5% [%]`    = mean(p_chow < 0.05) * 100,
-    `Chow break — sig. at 1% [%]`    = mean(p_chow < 0.01) * 100,
-    `Chow forecast — sig. at 5% [%]` = mean(p_fore < 0.05) * 100,
-    `Chow forecast — sig. at 1% [%]` = mean(p_fore < 0.01) * 100
-  ) 
-
-chow_summary %>%
-  kable(digits = 2, booktabs = TRUE, align = "c",
-        caption = "Proportion of stocks with a significant structural break (\\%)") %>%
-  kable_styling(latex_options = "scale_down")
-```
-
-At the 5% significance level, the Chow structural break test detects instability in about 13.9% of stocks, while at the 1% level this share falls to 4.6%. The Chow forecast test yields rejection rates of 14.1% at the 5% level and 9.1% at the 1% level.
-
-Overall, most stocks do not show evidence of instability, but a non-negligible share does. Rejection rates are slightly higher in the forecast test, suggesting that out-of-sample fit is weaker than what parameter stability alone would indicate.
-
-## Security Market Line by Subperiod
-```{r sml-subperiod}
-coef_characteristic_curve_struct <- capm_data %>%
-  group_by(ticker, period) %>%
-  do(tidy(lm(excess_return ~ excess_market, data = .))) %>%
-  ungroup() %>%
-  filter(term %in% c("(Intercept)", "excess_market")) %>%
-  select(ticker, period, term, estimate, std.error, statistic, p.value) %>%
-  pivot_wider(names_from = term, 
-              values_from = c(estimate, std.error, statistic, p.value)) %>%
-  rename(
-    alpha     = `estimate_(Intercept)`,
-    beta      = estimate_excess_market,
-    alpha_se  = `std.error_(Intercept)`,
-    beta_se   = std.error_excess_market,
-    alpha_t   = `statistic_(Intercept)`,
-    beta_t    = statistic_excess_market,
-    alpha_p   = `p.value_(Intercept)`,
-    beta_p    = p.value_excess_market
-  )
-
-portfolio_assignments_struct <- coef_characteristic_curve_struct %>%
-  group_by(period) %>%
-  arrange(beta, .by_group = TRUE) %>%
-  mutate(portfolio = ntile(beta, n_portfolios)) %>%
-  ungroup()
-  
-  
-  portfolio_returns_struct <- capm_data %>%
-  left_join(portfolio_assignments_struct %>% select(ticker, portfolio, period), by = c("ticker", "period")) %>%
-  filter(!is.na(portfolio)) %>%
-  group_by(portfolio, year_month, period) %>%
-  summarise(
-    portfolio_excess_return = mean(excess_return, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  group_by(portfolio, period) %>%
-  summarise(
-    mean_excess_return = mean(portfolio_excess_return, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-portfolio_betas_struct <- portfolio_assignments_struct %>%
-  group_by(portfolio, period) %>%
-  summarise(
-    portfolio_beta = mean(beta, na.rm = TRUE),
-    n_stocks = n(),
-    .groups = "drop"
-  )
-
-portfolio_data_struct <- portfolio_betas_struct %>%
-  left_join(portfolio_returns_struct, by = c("portfolio", "period"))
-
-
-sml_split <- portfolio_data_struct %>%
-  group_by(period) %>%
-  group_modify(~ tidy(lm(mean_excess_return ~ portfolio_beta, data = .x))) %>%
-  ungroup()
-```
-```{r sml-subperiod-plot, fig.cap="Security Market Line: early vs. recent subperiod"}
-portfolio_data_struct %>%
-  ggplot(aes(x = portfolio_beta, y = mean_excess_return, color = period)) +
-  geom_point(size = 2) +
-  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
-  scale_color_manual(values = c("early" = "steelblue", "recent" = "tomato"),
-                     labels = c("early" = paste0("Early (up to ", format(break_date, "%b %Y"), ")"),
-                                "recent" = paste0("Recent (last 48 months)"))) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  labs(x = expression(hat(beta)[p]), y = "Mean excess return", color = "") +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "bottom")
-```
-```{r sml-subperiod-table}
-sml_split %>%
-  mutate(term = rep(c("$\\gamma_0$", "$\\gamma_1$"), 2)) %>%
-  select(period, term, estimate, std.error, statistic, p.value) %>%
-  kable(digits = 4, booktabs = TRUE, align = "c",
-        escape = FALSE,
-        col.names = c("Period", "Term", "Estimate", "Std. Error", "t-stat", "p-value"),
-        caption = "SML estimates by subperiod")
-```
-
-
-Table \@ref(tab:sml-subperiod-table) and Figure \@ref(fig:sml-subperiod-plot) show the SML estimated separately for the early and recent subperiods. 
-
-At the 5% significance level, in the early period the intercept ($\gamma_0$) is positive and statistically significant (p-value = 0.0000), while the slope ($\gamma_1$) is negative and statistically significant (p-value = 0.0020). This implies a downward-sloping SML and a negative relationship between beta and returns, which contradicts the CAPM prediction of a positive risk–return trade-off.
-
-In the recent period, the intercept is not statistically significant at the 5% level (p-value = 0.0647), and the slope is also not significant (p-value = 0.9677), indicating no meaningful relationship between beta and returns.
-
-Overall, the estimated SMLs do not support the CAPM in either subperiod.
-
-## Asymmetric Beta
-
-The characteristic curve is reformulated to allow $\beta$ to differ depending on whether the market return is positive or negative:
-
-\begin{equation}
-r_{j} - r_{f} = \alpha_{j} + \beta_{j}^{+}(r_{m} - r_{f})^{+} + \beta_{j}^{-}(r_{m} - r_{f})^{-} + \varepsilon_{j}
-\end{equation}
-
-where $(r_{m} - r_{f})^{+} = \max(r_{m} - r_{f},\, 0)$ and $(r_{m} - r_{f})^{-} = \min(r_{m} - r_{f},\, 0)$.
-```{r asymmetric-beta}
-capm_data <- capm_data %>%
-  mutate(
-    market_up   = if_else(excess_market > 0, excess_market, 0),
-    market_down = if_else(excess_market < 0, excess_market, 0)
-  )
-
-asym_coefs <- capm_data %>%
-  group_by(ticker) %>%
-  do(tidy(lm(excess_return ~ market_up + market_down, data = .))) %>%
-  ungroup() %>%
-  select(ticker, term, estimate, std.error, statistic, p.value) %>%
-  pivot_wider(names_from = term,
-              values_from = c(estimate, std.error, statistic, p.value)) %>%
-  rename(
-    beta_up     = estimate_market_up,
-    beta_down   = estimate_market_down,
-    beta_up_se  = std.error_market_up,
-    beta_down_se = std.error_market_down,
-    beta_up_t   = statistic_market_up,
-    beta_down_t = statistic_market_down,
-    beta_up_p   = p.value_market_up,
-    beta_down_p = p.value_market_down
-  ) %>%
-  mutate(
-    diff      = beta_up - beta_down,
-    diff_se   = sqrt(beta_up_se^2 + beta_down_se^2),
-    t_diff    = diff / diff_se,
-    p_diff    = 2 * pt(-abs(t_diff), df = 58)
-  )
-```
-
-For each stock, we test $H_0: \beta^{+} = \beta^{-}$ against $H_1: \beta^{+} \neq \beta^{-}$ at the 5% significance level using a t-test based on the asymptotic standard error of the difference.
-```{r asymmetric-summary}
-asym_coefs %>%
-  summarise(
-    `Mean beta+ ` = mean(beta_up,   na.rm = TRUE),
-    `Mean beta-`  = mean(beta_down, na.rm = TRUE),
-    `Mean diff`   = mean(diff,      na.rm = TRUE),
-    `Sig. diff at 5% [%]` = mean(p_diff < 0.05, na.rm = TRUE) * 100
-  ) %>%
-  kable(digits = 3, booktabs = TRUE, align = "c",
-        caption = "Asymmetric beta estimates: summary")
-```
-
-Table \@ref(tab:asymmetric-summary) reports the results of the asymmetric beta estimates. The mean estimates of $\beta^{+}$ and $\beta^{-}$ are nearly identical (1.018 and 1.021), resulting in an average difference close to zero (-0.003). This indicates no meaningful asymmetry in beta at the aggregate level.
-
-At the individual stock level, 17.57% of stocks show a statistically significant difference between $\beta^{+}$ and $\beta^{-}$ at the 5% level. This suggests that asymmetry may be present for some stocks, although it is not consistently observed across the sample.
-\footnote{We also considered an alternative specification of the characteristic curve without the intercept. In this case, 8.5\% of stocks exhibit a statistically significant difference between $\beta^{+}$ and $\beta^{-}$ at the 5\% significance level. The mean difference between $\beta^{+}$ and $\beta^{-}$ was 0.001, which is close to zero.}
-
-Overall, the evidence for asymmetry is mixed: while some individual stocks show significant differences, the aggregate results do not provide strong or consistent evidence of systematic asymmetry in beta.
-
-## Security Market Line in Up and Down Markets
-```{r sml-updown}
-capm_data <- capm_data %>%
-  mutate(market_state = if_else(excess_market > 0, "up", "down"))
-
-portfolio_returns_updown <- capm_data %>%
-  left_join(portfolio_assignments %>% select(ticker, portfolio), by = "ticker") %>%
-  filter(!is.na(portfolio)) %>%
-  group_by(portfolio, market_state, year_month) %>%
-  summarise(portfolio_excess_return = mean(excess_return, na.rm = TRUE),
-            .groups = "drop") %>%
-  group_by(portfolio, market_state) %>%
-  summarise(mean_excess_return = mean(portfolio_excess_return, na.rm = TRUE),
-            .groups = "drop")
-
-
-portfolio_assignments_asym_up <- asym_coefs %>%
-  arrange(beta_up, .by_group = TRUE) %>%
-  mutate(portfolio = ntile(beta_up, n_portfolios))
-
-portfolio_assignments_asym_down <- asym_coefs %>%
-  arrange(beta_down, .by_group = TRUE) %>%
-  mutate(portfolio = ntile(beta_down, n_portfolios)) 
-    
-
-portfolio_betas_asym_up <- portfolio_assignments_asym_up %>%
-  group_by(portfolio) %>%
-  summarise(
-    portfolio_beta = mean(beta_up, na.rm = TRUE),
-    n_stocks = n(),
-    market_state = "up",
-    .groups = "drop"
-  )
-
-portfolio_betas_asym_down <- portfolio_assignments_asym_down %>%
-  group_by(portfolio) %>%
-  summarise(
-    portfolio_beta = mean(beta_down, na.rm = TRUE),
-    n_stocks = n(),
-    market_state = "down",
-    .groups = "drop"
-  )
-
-portfolio_betas_asym <- bind_rows(
-  portfolio_betas_asym_up,
-  portfolio_betas_asym_down
-)
-
-
-
-portfolio_data_updown <- portfolio_betas_asym %>%
-  left_join(portfolio_returns_updown, by = c("portfolio", "market_state"))
-
-sml_updown <- portfolio_data_updown %>%
-  group_by(market_state) %>%
-  group_modify(~ tidy(lm(mean_excess_return ~ portfolio_beta, data = .x))) %>%
-  ungroup()
-```
-
-
-```{r sml-updown-premium-test}
-mean_market_premium_updown <- capm_data %>%
-  group_by(market_state) %>%
-  summarise(mean_excess_market = mean(excess_market, na.rm = TRUE), .groups = "drop")
-
-mean_premium_down <- mean_market_premium_updown %>% 
-  filter(market_state == "down") %>% pull(mean_excess_market)
-mean_premium_up <- mean_market_premium_updown %>% 
-  filter(market_state == "up") %>% pull(mean_excess_market)
-
-# Extract gamma1 estimates and SEs for each state
-gamma1_down    <- sml_updown %>% filter(market_state == "down", term == "portfolio_beta")
-gamma1_up      <- sml_updown %>% filter(market_state == "up",   term == "portfolio_beta")
-
-t_down <- (gamma1_down$estimate - mean_premium_down) / gamma1_down$std.error
-t_up   <- (gamma1_up$estimate   - mean_premium_up)   / gamma1_up$std.error
-
-p_down <- 2 * pt(-abs(t_down), df = nrow(portfolio_data_updown)/2 - 2)
-p_up   <- 2 * pt(-abs(t_up),   df = nrow(portfolio_data_updown)/2 - 2)
-
-tibble(
-  `Market state` = c("Down", "Up"),
-  `$\\hat{\\gamma}_1$` = c(gamma1_down$estimate, gamma1_up$estimate),
-  `$\\bar{r}_m - r_f$` = c(mean_premium_down, mean_premium_up),
-  `$t$-stat` = c(t_down, t_up),
-  `$p$-value` = c(p_down, p_up)
-) %>%
-  kable(digits = 4, booktabs = TRUE, align = "c", escape = FALSE,
-        caption = "Test of $\\gamma_1 = \\bar{r}_m - r_f$ by market state")
-```
-
-
-
-```{r sml-updown-plot, fig.cap="Security Market Line: up vs. down market months"}
-portfolio_data_updown %>%
-  ggplot(aes(x = portfolio_beta, y = mean_excess_return, color = market_state)) +
-  geom_point(size = 2) +
-  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
-  scale_color_manual(values = c("up" = "steelblue", "down" = "tomato")) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  labs(x = expression(hat(beta)[p]), y = "Mean excess return", color = "Market state") +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "bottom")
-```
-```{r sml-updown-table}
-sml_updown %>%
-  mutate(term = rep(c("$\\gamma_0$", "$\\gamma_1$"), 2)) %>%
-  select(market_state, term, estimate, std.error, statistic, p.value) %>%
-  kable(digits = 4, booktabs = TRUE, align = "c",
-        escape = FALSE,
-        col.names = c("Market state", "Term", "Estimate", "Std. Error", "t-stat", "p-value"),
-        caption = "SML estimates: up vs. down market months")
-```
-
-Figure @ref(fig:sml-updown-plot) and Table @ref(tab:sml-updown-table) show the SML estimates across market regimes, while Table @ref(tab:sml-updown-premium-test) reports the test of $\gamma_1 = \bar{r}_m - r_f$.
-
-In down markets, the slope ($\gamma_1$) is negative and highly significant, indicating that higher-beta portfolios experience larger losses. The intercept ($\gamma_0$) is not statistically different from zero. The equality $\gamma_1 = \bar{r}_m - r_f$ is not rejected (p = 0.743), so the slope is consistent with the observed negative market premium.
-
-In up markets, the slope is positive and significant but smaller than the market premium, and the equality $\gamma_1 = \bar{r}_m - r_f$ is strongly rejected (p < 0.001). The intercept is positive and significant, indicating that returns are not fully explained by beta.
-
-In down markets, the CAPM restrictions are not rejected, as the slope is consistent with the market risk premium and the intercept is not statistically different from zero. In contrast, in up markets, the intercept is significantly different from zero and the slope is statistically not equal to the market risk premium, indicating a violation of the CAPM.
