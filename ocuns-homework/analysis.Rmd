@@ -837,5 +837,7 @@ The baseline model without structural breaks yields a relatively small long-run 
 
 In the baseline dynamic model (D0), the long-run effect is relatively small, $\hat{a}^{LR} = -0.0974$, reflecting strong persistence in unemployment dynamics. When structural breaks are introduced (D1–D3), the pre-crisis coefficients are substantially larger in magnitude (approximately $-0.45$ to $-0.56$), while post-break values decline markedly to around $-0.23$ to $-0.33$. This indicates a clear weakening of the unemployment–output linkage in the post-crisis period. 
 
-The Delta method and Monte Carlo standard errors are broadly consistent across most specifications. However, some discrepancies in the pre-break estimates for Cases B and C suggest increased estimation uncertainty arising from nonlinear transformations and higher parameter variability in more complex break specifications. Overall, the findings point to a structurally weaker Okun relationship after the global financial crisis, with robust evidence across alternative model specifications.
+Standard errors from the Delta method and Monte Carlo simulation are broadly consistent for most post-break estimates. However, pre-break estimates in more general specifications (D2 and D3) exhibit noticeably higher Monte Carlo variability, suggesting increased parameter uncertainty in richer interaction models.
+
+Overall, the findings point to a structurally weaker Okun relationship after the global financial crisis, with robust evidence across alternative model specifications.
 
