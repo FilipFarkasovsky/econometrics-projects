@@ -11,20 +11,20 @@ output:
     fig_caption: true
 ---
 
-# Abstract {-}
+# Data and Detrending Methodology
 
-This study examines the CAPM using S&P 500 stock data from 2000–2026 by estimating beta coefficients and testing their ability to explain expected returns. 
+## Data Description and Sources
+The analysis is based on quarterly macroeconomic data for Switzerland covering the period from 1995Q1 to 2025Q4. Real GDP data are obtained from the State Secretariat for Economic Affairs (SECO), while unemployment data are taken from the Swiss Federal Statistical Office (FSO) based on the ILO definition. Both series are seasonally adjusted to remove systematic seasonal fluctuations and improve comparability over time. Real GDP is expressed in logarithmic form to stabilise variance and allow interpretation in growth terms, while unemployment is measured in percentage terms. Figure @ref(fig:struct-change) illustrates the evolution of log GDP and unemployment in Switzerland over the sample period.
 
-https://www.bfs.admin.ch/bfs/en/home/statistics/work-income/unemployment-underemployment/ilo-unemployed.html
-
+Real GDP data source: 
 https://www.seco.admin.ch/seco/en/home/wirtschaftslage---wirtschaftspolitik/Wirtschaftslage/bip-quartalsschaetzungen-/daten.html
 
-# Data Collection and Estimation of Beta Coefficients
-
-## Data Loading and Preparation
+Unemployment data source:
+https://www.bfs.admin.ch/bfs/en/home/statistics/work-income/unemployment-underemployment/ilo-unemployed.html
 
 ```{r setup, include=FALSE}
 rm(list = ls())
+cat("\014")
 set.seed(1789)
 
 
@@ -35,7 +35,8 @@ knitr::opts_chunk$set(
   fig.width = 5,
   fig.height = 3,
     out.width = "60%",
-  fig.align = "center")
+  fig.align = "center",
+  include = FALSE)
 
 library(knitr)
 library(tidyverse)
@@ -90,6 +91,8 @@ data <- data %>%
   filter(year >= 1995, year <= 2025) %>%
   dplyr::select(year, quarter, gdp, u)
 
+data$time <- as.yearqtr(paste(data$year, data$quarter), format = "%Y %q")
+
 T_full <- length(data$gdp)
 start_yr <- 1995; start_q <- 1
 
@@ -100,7 +103,22 @@ U_ts <- ts(data$u,   start = c(start_yr, start_q), frequency = 4)
 y_ts <- log(Y_ts)
 ```
 
-```{r struct-change, fig.height=6}
+
+```{r shared-theme, include=FALSE}
+ 
+# Palette
+col_blue   <- "#3B6FD4"   # GDP / pre-break
+col_red    <- "#E05C5C"   # Unemployment / post-break / recession
+col_green  <- "#3BAD7A"   # expansion
+col_orange <- "#E89A3C"   # dynamic models
+col_purple <- "#7B5EA7"   # additional
+col_break  <- "#999999"   # structural break line
+ 
+break_date <- as.Date("2008-07-01")   # 2008Q3
+```
+
+
+```{r struct-change, fig.height=5, fig.cap="Switzerland: Log GDP and Unemployment (1995Q1–2025Q4)", include = TRUE}
 t_vec <- 1:T_full                         # linear trend
 t_vec_ts <- ts(t_vec, start = c(start_yr, start_q), frequency = 4)
 
@@ -113,39 +131,57 @@ pom = window(t_vec_ts,start=c(2008,3),end=c(2008,3))
 Dt_t       <- D_t * (t_vec_ts - pom[1])
 
 # visual inspection
-p1 <- autoplot(y_ts) +
+p1 <- autoplot(y_ts, colour = "#2c5f8a") +
   labs(
-    title = "Switzerland: Log Real GDP (1995Q1–2025Q4)",
+    title = "Log Real GDP of Switzerland (1995–2025)",
     x = "Time",
     y = "Log GDP"
   ) +
   theme_minimal()
 
-p2 <- autoplot(U_ts) +
+p2 <- autoplot(U_ts, colour = col_red) +
   labs(
-    title = "Switzerland: Unemployment Rate (1995Q1–2025Q4)",
+    title = "Unemployment Rate of Switzerland (1995–2025)",
     x = "Time",
     y = "Unemployment (%)"
   ) +
   theme_minimal()
 
 p1 / p2
+
 ```
+
 ```{r}
 bp_y <- breakpoints(y_ts ~ t_vec_ts)
 bp_u <- breakpoints(U_ts ~ t_vec_ts)
 
 summary(bp_y)
-breakpoints(bp_y)
+ccc <-breakpoints(bp_y)
 
 summary(bp_u)
 breakpoints(bp_u)
 ```
+## Structural Break Identification
+The Bai–Perron procedure identifies multiple structural changes in both series.The BIC criterion suggests a five-segment specification as optimal for both series. For log GDP, the estimated break dates are 1999Q3, 2004Q1, 2008Q3, 2016Q4, and 2021Q2. For unemployment, the corresponding break dates are 2000Q1, 2004Q3, 2009Q1, 2013Q4, and 2021Q2. A break around 2008Q3–2009Q1 appears consistently across various number of breakpoints in both series, coinciding with the global financial crisis. Given its economic relevance, and robustness, 2008Q3 is selected as the baseline structural break for the subsequent analysis.
 
-```{r}
-# Eq. (5): y_t = β0 + β1*t + β2*D_t*t + ε1   → ŷ_t = fitted; ỹ_t = residual
-# Eq. (6): U_t = γ0 + γ1*D_t + ε2            → Û_t = fitted; Ũ_t = residual
+## Detrending Methodology
+Following Weber, the cyclical components are obtained using a regression-based detrending approach with a structural break. Output is modelled as
+\begin{equation}
+y_t = \beta_0 + \beta_1 t + \beta_2 D_t t + \varepsilon_t,
+\end{equation}
+while unemployment linear regression model is specified as:
+\begin{equation}
+U_t = \gamma_0 + \gamma_1 D_t + \varepsilon_t.
+\end{equation}
 
+where $y_t$ denotes log real GDP, $U_t$ is the unemployment rate, $t$ is a linear time trend, and $D_t$ is a structural break dummy capturing a change in regime at 2008Q3. The interaction term $D_t t$ allows for a change in the trend slope after the break. In both equations, the fitted values represent the deterministic trend component, while the residuals define the cyclical components:
+\begin{equation}
+y_t^{c} = y_t - \hat{y}_t, \quad U_t^{c} = U_t - \hat{U}_t
+\end{equation}
+
+The resulting cyclical components are shown in Figures~\ref{fig:cyclec-output} (output gap) and~\ref{fig:cycles-unemp} (unemployment gap), together with their HP-filtered counterparts using $\lambda = 1600$. The HP filter produces cycles with smaller amplitude and lower volatility compared to the regression-based detrending approach.
+
+```{r cycles}
 # Bind as data frame for dynlm
 df_ts <- ts.union(y_ts, U_ts, t_vec_ts, D_t, Dt_t)
 colnames(df_ts) <- c("y","U","t","D","Dt")
@@ -162,72 +198,61 @@ print(summary(eq6))
 y_cycle <- ts(residuals(eq5) * 100, start = c(start_yr, start_q), frequency = 4)
 U_cycle <- ts(residuals(eq6), start = c(start_yr, start_q), frequency = 4)
 
-cat("\n  Interpretation of parameters:\n")
-cat("  Eq (5): beta0 = initial log-GDP level; beta1 = trend growth rate before break;\n")
-cat("          beta2 = change in trend growth after 2008Q3 (slope shift).\n")
-cat("          Residuals = output gap (cyclical log GDP).\n")
-cat("  Eq (6): gamma0 = natural rate before break; gamma1 = shift in natural rate after\n")
-cat("          2008Q3 (level shift). Residuals = cyclical unemployment gap.\n\n")
-
-# Plot cyclical components
-par(mfrow = c(2, 1), mar = c(3, 4, 3, 2))
-plot(y_cycle, main = "Cyclical GDP (Output Gap) — Eq. (5) residuals",
-     ylab = "Output Gap", col = "#2c5f8a", lwd = 1.5)
-abline(h = 0, lty = 2); abline(v = 2008 + 2/4, col = "red", lty = 2)
-
-plot(U_cycle, main = "Cyclical Unemployment Gap — Eq. (6) residuals",
-     ylab = "Unemployment Gap (%)", col = "#8a2c2c", lwd = 1.5)
-abline(h = 0, lty = 2); abline(v = 2008 + 2/4, col = "red", lty = 2)
-
 # ── 1f. Alternative: HP filter for comparison ─────────────────────────────────
 hp_y <- hpfilter(y_ts, freq = 1600)
 hp_U <- hpfilter(U_ts, freq = 1600)
 y_cycle_hp <- ts(hp_y$cycle * 100, start = c(start_yr, start_q), frequency = 4)
 U_cycle_hp <- ts(hp_U$cycle, start = c(start_yr, start_q), frequency = 4)
+```
+## Estimated Trends and Interpretation
+The GDP specification shows statistically significant coefficients at the 5\% level. The time trend is positive and precisely estimated ($\hat{\beta}_1 = 0.00506$ (0.00011)), indicating a stable pre-break growth rate in log GDP. The interaction term $D_t t$ is negative and statistically significant ($\hat{\beta}_2 = -0.00052$ (0.00016)), implying a decline in trend growth after 2008Q3. The intercept is also highly significant ($\hat{\beta}_0 = 11.632$ (0.004)), reflecting the level of log output.
 
+For unemployment, both coefficients are statistically significant at the 5\% level. The intercept ($\hat{\gamma}_0 = 4.093$ (0.075)) captures the baseline unemployment rate, while the break dummy coefficient ($\hat{\gamma}_1 = 0.524$ (0.100)) indicates a statistically significant upward level shift in unemployment after the structural break.
+
+Overall, all key parameters associated with trend and break dynamics are statistically significant at the 5\% level, indicating a possible structural change in both output and labour market conditions around 2008Q3.
+
+```{r cyclec-output, fig.cap="Output gap: regression-based detrending vs HP filter ($\\lambda = 1600$)", include=TRUE}
 par(mfrow = c(1, 1), mar = c(3, 4, 3, 2))
-plot(y_cycle, main = "Output Gap: Regression Detrend vs HP Filter",
+plot(y_cycle,
      ylab = "Output Gap", col = "#2c5f8a", lwd = 1.5)
 lines(y_cycle_hp, col = "#e07b00", lwd = 1.5, lty = 2)
 abline(h = 0, lty = 3)
 legend("bottomleft", legend = c("Regression detrend", "HP filter"),
        col = c("#2c5f8a","#e07b00"), lty = c(1,2), lwd = 1.5, bty = "n")
 
+```
+```{r cycles-unemp, fig.cap="Unemployment gap: regression-based detrending vs HP filter ($\\lambda = 1600$)", include=TRUE}
 par(mfrow = c(1, 1), mar = c(3, 4, 3, 2))
-plot(U_cycle, main = "Cyclical Unemployment Gap: Regression Detrend vs HP Filter",
-     ylab = "Output Gap", col = "#2c5f8a", lwd = 1.5)
+plot(U_cycle,
+     ylab = "Unemployemnt Gap", col = "#2c5f8a", lwd = 1.5)
 lines(U_cycle_hp, col = "#e07b00", lwd = 1.5, lty = 2)
 abline(h = 0, lty = 3)
 legend("bottomleft", legend = c("Regression detrend", "HP filter"),
        col = c("#2c5f8a","#e07b00"), lty = c(1,2), lwd = 1.5, bty = "n")
-
-cat("  HP-filter alternative computed (lamda=1600). Results shown in plots.\n\n")
 ```
+# Structural Breaks and Asymmetry
 
 ```{r}
 df2 <- data.frame(
-  U_cyc = as.numeric(U_cycle_hp),
-  y_cyc = as.numeric(y_cycle_hp),
+  U_cyc = as.numeric(U_cycle),
+  y_cyc = as.numeric(y_cycle),
   D     = as.numeric(D_t),
   t     = t_vec
 )
 
-# ── 2.1 Basic static Okun — Equation (3) ─────────────────────────────────────
-cat("── Equation (3): Basic Static Okun ──────────────────────────\n")
+# Basic static Okun —
 eq3 <- lm(U_cyc ~ y_cyc, data = df2)
 print(summary(eq3))
-cat(sprintf("  Okun coefficient (alapha): %.4f  [Expected: negative]\n\n",
-            coef(eq3)["y_cyc"]))
+cat(sprintf("  Okun coefficient (alapha): %.4f\n",coef(eq3)["y_cyc"]))
 
-# ── 2.2 Chow test for structural break at 2008Q3 ─────────────────────────────
-cat("── Chow Test for Structural Break at 2008Q3 ─────────────────\n")
+#  Chow test for structural break at 2008Q3
 # Chow F-test: split sample
 df_pre  <- df2[df2$t < break_idx, ]
 df_post <- df2[df2$t >= break_idx, ]
 
 eq3_pre  <- lm(U_cyc ~ y_cyc, data = df_pre)
 eq3_post <- lm(U_cyc ~ y_cyc, data = df_post)
-eq3_full <- eq3   # already estimated
+eq3_full <- eq3   
 
 RSS_pre  <- sum(residuals(eq3_pre)^2)
 RSS_post <- sum(residuals(eq3_post)^2)
@@ -246,7 +271,6 @@ cat(sprintf("  Conclusion: %s\n\n",
                    "Reject H0 — structural break detected at 5% level.",
                    "Fail to reject H0 — no significant structural break.")))
 
-cat("── Chow Predictive (Forecast) Test ──────────────────────────\n")
 n1 <- nrow(df_pre); n2 <- nrow(df_post)
 y_hat_post <- predict(eq3_pre, newdata = df_post)
 RSS_pred   <- sum((df_post$U_cyc - y_hat_post)^2)
@@ -256,17 +280,33 @@ Chow_pred_p <- pf(Chow_pred_F, df1 = n2, df2 = n1 - k, lower.tail = FALSE)
 
 cat(sprintf("  Predictive F-stat: %.4f\n", Chow_pred_F))
 cat(sprintf("  p-value          : %.4f\n", Chow_pred_p))
-cat("\n  Difference between tests:\n")
-cat("  • Chow F-test: tests equality of ALL coefficients across two sub-samples\n")
-cat("    (requires roughly equal sub-samples; sensitive to known break date).\n")
-cat("  • Predictive test: estimates on pre-break data, tests whether residuals\n")
-cat("    in post-break period are 'too large' — better when post-break period\n")
-cat("    is short and you want to preserve degrees of freedom.\n\n")
 ```
+## Baseline Okun’s Law
+The baseline Okun relationship is estimated using cyclical components of unemployment and output:
+\begin{equation}
+U_t^c = \alpha + \beta y_t^c + \varepsilon_t,
+\end{equation}
+where $U_t^c$ denotes cyclical unemployment and $y_t^c$ cyclical output.
 
+The estimated coefficient is:
+$\hat{\beta} = -0.176 \; (0.038),$
+which is statistically significant at conventional levels. The result indicates a negative relationship between cyclical output and cyclical unemployment. Economically, a one percentage point increase in the output gap is associated with a 0.18 percentage point decrease in cyclical unemployment, consistent with Okun’s law. The intercept is statistically insignificant, suggesting no systematic bias in cyclical unemployment conditional on output.
+
+## Structural Stability: Chow Tests
+To assess structural stability at the 2008Q3 break date, two complementary tests are applied.
+
+\textbf{Chow structural break test.} The test yields $F = 2.95$ with $p = 0.056$. At the 5\% significance level, the null hypothesis of parameter stability cannot be rejected, although the result is borderline significant. This provides weak evidence of a possible structural change in the Okun relationship around the financial crisis period.
+
+\textbf{Chow predictive test.} The predictive test produces $F = 0.41$ with $p \approx 1.00$, indicating no deterioration in out-of-sample forecasting performance after the break date. This suggests that the pre-break model remains valid for post-break observations.
+
+\textbf{Comparison of tests.} The two tests capture different aspects of stability: the structural break test evaluates parameter equality across subsamples, while the predictive test assesses forecasting performance. In this application, both tests lead to consistent conclusions, indicating no strong evidence of a structural break at the 5\% significance level, although the structural break test suggests mild instability cannot be fully excluded.
+
+\textbf{Robustness check.} The model is re-estimated also using HP-filtered cyclical components. In this case, the Okun coefficient remains very similar, with $\hat{\beta} = -0.1711 \; (0.022)$, while the intercept is statistically insignificant.
+
+However, unlike the baseline specification, the Chow structural break test strongly rejects parameter stability at the 5\% level, with $F = 10.9099$ and $p < 0.001$. The predictive Chow test also indicates instability, with $F = 1.6809$ and $p = 0.0256$, suggesting a statistically significant deterioration in out-of-sample predictive performance after the break date.
+
+##  Okun with Structural Break Dummy
 ```{r}
-# ── 2.3 Okun with structural break dummy — Equation (3') ─────────────────────
-cat("── Equation (3'): Okun with Slope Dummy ─────────────────────\n")
 df2$Dy_cyc <- df2$D * df2$y_cyc   # slope dummy
 
 eq3p <- lm(U_cyc ~ y_cyc + Dy_cyc, data = df2)
@@ -278,8 +318,15 @@ cat(sprintf("\n  Okun coefficient BEFORE 2008Q3 : alpha1         = %.4f\n", a1))
 cat(sprintf("  Okun coefficient AFTER  2008Q3 : alpha1 + alpha2   = %.4f\n", a1 + a2))
 cat(sprintf("  Change (alpha2)                    : %.4f\n\n", a2))
 ```
+To allow for a structural change in the Okun relationship, an augmented specification with an interaction term is estimated:
+\begin{equation}
+U_t^c = \alpha + \beta_1 y_t^c + \beta_2 (D_t \cdot y_t^c) + \varepsilon_t,
+\end{equation}
+where $D_t$ is a dummy variable equal to one after 2008Q3 and zero otherwise. This specification allows the Okun coefficient to differ across regimes.
+
+The estimated coefficient on $y_t^c$ is $\hat{\beta}_1 = -0.2409 \; (0.0377)$ and is statistically significant at the 1\% level, indicating a negative relationship between output and unemployment prior to the break. The interaction term is positive and statistically significant at the 5\% level, $\hat{\beta}_2 = 0.1283 \; (0.0528)$, implying a weakening of this relationship after 2008Q3. The implied post-break Okun coefficient is $\hat{\beta}_1 + \hat{\beta}_2 = -0.1126$, suggesting that output fluctuations have a smaller effect on unemployment in the later period. The intercept is not statistically significant, indicating no systematic shift in the mean of cyclical unemployment.
+
 ```{r}
-cat("── Asymmetry Test (Expansion vs Recession) ──────────────────\n")
 df2$pos_gap <- pmax(df2$y_cyc, 0)
 df2$neg_gap <- pmin(df2$y_cyc, 0)
 
@@ -296,7 +343,20 @@ linearHypothesis_res <- tryCatch(
   error = function(e) NULL
 )
 if (!is.null(linearHypothesis_res)) print(linearHypothesis_res)
+```
+## Asymmetry
+To test for asymmetry in the Okun relationship, the output gap is decomposed into positive and negative components:
+\begin{equation}
+U_t^c = \alpha + \beta^{+} y_t^{c,+} + \beta^{-} y_t^{c,-} + \varepsilon_t,
+\end{equation}
+where $y_t^{c,+} = \max(y_t^c, 0)$ captures expansions and $y_t^{c,-} = \min(y_t^c, 0)$ captures recessions. This specification allows the Okun coefficient to differ depending on the phase of the business cycle.
 
+Both coefficients are negative and statistically significant at the 1\% level, with $\hat{\beta}^{+} = -0.2055 \; (0.0547)$ and $\hat{\beta}^{-} = -0.1558 \; (0.0417)$, indicating that an increase in the output gap is associated with a decrease in the unemployment gap in both expansions and recessions. The magnitude of the effect is somewhat larger during expansions, suggesting a stronger response of unemployment to positive output gaps.
+
+However, a formal test of equality of coefficients does not reject the null hypothesis of symmetry ($F = 0.3933$, $p = 0.5318$), implying that the difference between $\beta^{+}$ and $\beta^{-}$ is not statistically significant at the 5\% level. Therefore, there is no strong evidence of asymmetry in the static Okun relationship.
+
+
+```{r, fig.height=4}
 par(mfrow = c(1, 1))
 plot(df2$y_cyc, df2$U_cyc,
      main = "Cyclical Unemployment vs Output Gap",
@@ -308,16 +368,14 @@ legend("topright",
        legend = c("Pre-2008Q3", "Post-2008Q3"),
        col = c("#2c5f8a","#8a2c2c"), pch = 16, lwd = 2, bty = "n")
 ```
-
+# Dynamic Okun’s Law and Long-Run Effects
 ```{r}
 # Convert to ts for dynlm
 U_cyc_ts <- ts(df2$U_cyc, start = c(start_yr, start_q), frequency = 4)
 y_cyc_ts <- ts(df2$y_cyc, start = c(start_yr, start_q), frequency = 4)
 D_ts     <- ts(df2$D,     start = c(start_yr, start_q), frequency = 4)
 
-# ── 3.1 Select optimal lag via IC for baseline dynamic model (Eq. 7) ──────────
 # U*_t = Σ δi*U*_{t-i} + Σ β_i*y_{t-i} + ε
-cat("── Information Criteria for Lag Selection ───────────────────\n")
 max_lag <- 10
 ic_table <- data.frame(k = 1:max_lag, AIC = NA, BIC = NA)
 
@@ -338,45 +396,87 @@ cat(sprintf("  Optimal lag by BIC: k = %d\n\n", opt_k_BIC))
 # Use BIC-selected lag for primary results (more parsimonious)
 k_opt <- opt_k_BIC
 ```
+```{r ic-table, include = TRUE}
+kable(ic_table,
+      caption = "Lag selection based on AIC and BIC",
+      digits = 3,
+      booktabs = TRUE) %>%
+  kable_styling(latex_options = c("hold_position", "striped"))
+```
+## Lag Selection and Baseline Dynamic Model 
+As a robustness check, a dynamic version of Okun’s law is also estimated. The specification (denoted as D0) takes the form
+\begin{equation}
+U_t^c = \alpha + \sum_{i=1}^{k} \phi_i U_{t-i}^c + \sum_{i=1}^{k} \beta_i y_{t-i}^c + \varepsilon_t,
+\end{equation}
+where $U_t^c$ and $y_t^c$ denote the cyclical components of unemployment and output, respectively, and $k$ is the lag length.
 
+The Akaike Information Criterion (AIC) and Bayesian Information Criterion (BIC) values are reported in Table~\ref{tab:ic-table} (generated in the corresponding R output). Models with up to $k = 10$ lags are considered, and both criteria select $k = 1$ as optimal.
 
 ```{r}
-# ── 3.2 Estimate dynamic Okun — Equation (7) ─────────────────────────────────
-cat(sprintf("── Equation (7): Dynamic Okun (k = %d lags) ─────────────────\n", k_opt))
 
 eq7 <- dynlm(U_cyc_ts ~ L(U_cyc_ts, 1:k_opt) + L(y_cyc_ts, 1:k_opt))
 print(summary(eq7))
 
 # Long-run coefficient: LR = Σβ_i / (1 - Σδ_i)
 compute_LR <- function(model, k, prefix_y = "L(y_cyc_ts, ", prefix_U = "L(U_cyc_ts, ") {
-      delta <- coef(model)
+    coefs <- coef(model)
+    vcov_mat <- vcov(model)
     # indices
-    idx_U <- 2:(k_opt + 1)
-    idx_Y <- (k_opt + 2):(2 * k_opt + 1)
+    idx_U <- 2:(k + 1)
+    idx_Y <- (k + 2):(2 * k + 1)
     
+    delta <- coefs[2:(1 + k)]                 # U lags
+    beta  <- coefs[(2 + k):(1 + 2*k)]        # y lags
+
+    sum_delta <- sum(delta, na.rm = TRUE)
+    sum_beta  <- sum(beta, na.rm = TRUE)
+  
     # long-run Okun coefficient
-    a_LR <- sum(delta[idx_Y]) / (1 - sum(delta[idx_U]))
-    a_LR
+    a_LR <- sum_beta / sum_delta
+    
+    grad <- rep(0, length(coefs))
+    grad[idx_U] <- sum_beta / (1 - sum_delta)^2
+    grad[idx_Y] <- 1 / sum_delta
+    var_LR <- as.numeric(t(grad) %*% vcov_mat %*% grad)
+    se_LR  <- sqrt(var_LR)
+    
+    set.seed(1789)
+    n_sim   <- 10000
+    LR_sim <- matrix(0,nrow = n_sim, ncol = 1)
+     for (ii in seq(1,n_sim,by=1)){
+       #Simulace vektoru parametru delta (pomocna promenna "pom")
+       pom <- mvrnorm(1,coefs,vcov_mat)
+       delta <- pom[2:(1 + k)]                 # U lags
+       beta  <- pom[(2 + k):(1 + 2*k)]        # y lags
+
+       sum_delta <- sum(delta, na.rm = TRUE)
+       sum_beta  <- sum(beta, na.rm = TRUE)
+  
+       LR_sim[ii] <- sum_beta / sum_delta
+     }
+    
+    list(LR = a_LR, SE = se_LR, SE_MC = sd(LR_sim))
 }
 
 lr7 <- compute_LR(eq7, k_opt)
-cat(sprintf("  Long-Run Okun coefficient: %.4f\n\n", lr7))
+cat(sprintf("  Long-Run Okun coefficient: %.4f\n\n", lr7$LR))
 
-opt_k_AIC <- 2
+opt_k_AIC <- 3
 # Robustness: AIC-optimal lag
 if (opt_k_AIC != opt_k_BIC) {
-  cat(sprintf("── Robustness: Dynamic Okun with AIC lag k=%d ────────────────\n", opt_k_AIC))
   eq7_AIC <- dynlm(U_cyc_ts ~ L(U_cyc_ts, 1:opt_k_AIC) + L(y_cyc_ts, 1:opt_k_AIC))
   print(summary(eq7_AIC))
 
   lr7_AIC <- compute_LR(eq7_AIC, opt_k_AIC)
-  cat(sprintf("  Long-Run Okun (AIC lags): %.4f\n\n", lr7_AIC))
+  cat(sprintf("  Long-Run Okun (AIC lags): %.4f\n\n", lr7_AIC$LR))
 }
 ```
+Based on the preferred lag order $k=1$, the estimated dynamic model (D0) implies a long-run Okun coefficient of $\hat{a}{LR} = -0.0974$. This suggests a relatively weak long-run effect of output fluctuations on unemployment, driven by strong persistence in unemployment dynamics. 
+
+As a robustness check, specifications with $k=2$ and $k=3$ are also estimated. In both cases, higher-order lag terms are jointly insignificant, indicating that additional dynamics do not contribute significantly to the model. The implied long-run coefficients remain broadly stable, although they decrease slightly in absolute value ($\hat{a}{LR} = -0.0821$ and $\hat{a}{LR} = -0.0645$ compared to the baseline $\hat{a}_{LR} = -0.0974$). This suggests mild sensitivity to lag length.
+
 
 ```{r}
-# ── 3.3 Structural break in dynamic model — Equation (7') ────────────────────
-cat("── Equation (7'): Dynamic Okun with Structural Break ────────\n")
 cat("   Case A: Break in output gap lags only\n\n")
 
 # Slope dummies: D*L(U), D*L(y) for each lag
@@ -393,51 +493,349 @@ build_dynamic_break_formula <- function(k, break_U = FALSE, break_y = TRUE) {
   as.formula(paste("U_cyc_ts ~", rhs))
 }
 ```
-
+## Structural Break in Output Channel
 
 ```{r}
 # Case A: Break in y lags only
 eq7p_A <- dynlm(build_dynamic_break_formula(k_opt, break_U = FALSE, break_y = TRUE))
 print(summary(eq7p_A))
 
-# LR before break: Σβ_i / (1 - Σδ_i)
-# LR after break : Σ(β_i + γ_i) / (1 - Σδ_i)
 compute_LR_break_A <- function(model, k) {
   coefs <- coef(model)
-  beta_names  <- paste0("L(y_cyc_ts, ", 1:k, ")")
-  gamma_names <- paste0("I(D_ts * L(y_cyc_ts, ", 1:k, "))")
-  delta_names <- paste0("L(U_cyc_ts, ", 1:k, ")")
+  vcov_mat <- vcov(model)
+  
+  idx_delta <- 2:(1 + k)
+  idx_beta <- (2 + k):(1 + 2*k)
+  idx_gamma <- (2 + 2*k):(1 + 3*k)
+  
+  delta <- coefs[idx_delta]                 # U lags
+  beta  <- coefs[idx_beta]        # y lags
+  gamma <- coefs[idx_gamma]      # interaction terms
 
-  # handle dynlm naming (no space)
-  all_names <- names(coefs)
-  get_coef <- function(pattern_vec) {
-    sapply(pattern_vec, function(p) {
-      idx <- grep(gsub(" ", "", p, fixed = TRUE),
-                  gsub(" ", "", all_names, fixed = TRUE), fixed = TRUE)
-      if (length(idx) == 1) coefs[idx] else 0
-    })
-  }
-  betas  <- get_coef(beta_names)
-  gammas <- get_coef(gamma_names)
-  deltas <- get_coef(delta_names)
-
-  sum_beta  <- sum(betas)
-  sum_gamma <- sum(gammas)
-  sum_delta <- sum(deltas)
+  sum_delta <- sum(delta, na.rm = TRUE)
+  sum_beta  <- sum(beta, na.rm = TRUE)
+  sum_gamma <- sum(gamma, na.rm = TRUE)
 
   LR_pre  <- sum_beta / (1 - sum_delta)
   LR_post <- (sum_beta + sum_gamma) / (1 - sum_delta)
-  list(LR_pre = LR_pre, LR_post = LR_post,
-       sum_delta = sum_delta, sum_beta = sum_beta, sum_gamma = sum_gamma)
+  
+  grad_pre <- rep(0, length(coefs))
+  grad_pre[idx_delta] <- sum_beta / (1 - sum_delta)^2
+  grad_pre[idx_beta] <- 1 / (1 - sum_delta)
+
+  grad_post <- rep(0, length(coefs))
+  grad_post[idx_delta] <- (sum_beta + sum_gamma) / (1 - sum_delta)^2
+  grad_post[idx_beta]     <- 1 / (1 - sum_delta)
+  grad_post[idx_gamma] <- 1 / (1 - sum_delta)
+  
+  se_pre  <- sqrt(as.numeric(t(grad_pre)  %*% vcov_mat %*% grad_pre))
+  se_post <- sqrt(as.numeric(t(grad_post) %*% vcov_mat %*% grad_post))
+  
+    set.seed(1789)
+    n_sim   <- 10000
+    LR_sim_pre <- matrix(0,nrow = n_sim, ncol = 1)
+    LR_sim_post <- matrix(0,nrow = n_sim, ncol = 1)
+     for (ii in seq(1,n_sim,by=1)){
+       #Simulace vektoru parametru delta (pomocna promenna "pom")
+       pom <- mvrnorm(1,coefs,vcov_mat)
+      delta <- pom[idx_delta]                 # U lags
+      beta  <- pom[idx_beta]        # y lags
+      gamma <- pom[idx_gamma]      # interaction terms
+    
+      sum_delta <- sum(delta, na.rm = TRUE)
+      sum_beta  <- sum(beta, na.rm = TRUE)
+      sum_gamma <- sum(gamma, na.rm = TRUE)
+  
+       LR_sim_pre[ii] <- sum_beta / (1 - sum_delta)
+       LR_sim_post[ii] <- (sum_beta + sum_gamma) / (1 - sum_delta)
+
+     }
+  
+  list(
+    LR_pre  = LR_pre,
+    SE_pre  = se_pre,
+    LR_post = LR_post,
+    SE_post = se_post,
+    SE_pre_MC = sd(LR_sim_pre),
+    SE_post_MC = sd(LR_sim_post)
+  )
 }
 
 lr_A <- compute_LR_break_A(eq7p_A, k_opt)
 cat(sprintf("  Case A — LR Okun BEFORE 2008Q3: %.4f\n", lr_A$LR_pre))
 cat(sprintf("  Case A — LR Okun AFTER  2008Q3: %.4f\n\n", lr_A$LR_post))
+```
+To test for structural change in the dynamic Okun relationship, we estimate a specification allowing for a break in the coefficients on lagged output only, while keeping the unemployment dynamics unchanged. This specification (denoted as D1) is given by:
+\begin{equation}
+U_t^c = \alpha + \sum_{i=1}^{k} \phi_i U_{t-i}^c + \sum_{i=1}^{k} \theta_i y_{t-i}^c + \sum_{i=1}^{k} \delta_i (D_t \cdot y_{t-i}^c) + \varepsilon_t.
+\end{equation}
 
-cat("   Case B: Break in both output gap AND unemployment lags\n\n")
+The estimated results indicate that the interaction term is not statistically significant, with $\hat{\delta}_1 = 0.0244$ (0.0230), suggesting no strong evidence of a structural change in the effect of output on unemployment once unemployment dynamics are held constant. The lagged unemployment coefficient remains highly significant at $\hat{\phi}_1 = 0.7931$ (0.0385), while the baseline output coefficient is $\hat{\theta}_1 = -0.0935$ (0.0193).
+
+The implied long-run Okun coefficients are $\hat{a}^{LR} = -0.4522$ before the break and $\hat{a}^{LR} = -0.3341$ after the break, indicating a moderate reduction in the magnitude of the Okun relationship following the financial crisis, although the evidence of structural change remains statistically weak in this restricted specification.
+
+```{r}
+# Case B LR
 eq7p_B <- dynlm(build_dynamic_break_formula(k_opt, break_U = TRUE, break_y = TRUE))
 print(summary(eq7p_B))
+
+compute_LR_break_B <- function(model, k) {
+  coefs     <- coef(model)
+  vcov_mat <- vcov(model)
+  
+  i1 <- 2
+  i2 <- i1 + k - 1
+  i3 <- i2 + 1
+  i4 <- i3 + k - 1
+  i5 <- i4 + 1
+  i6 <- i5 + k - 1
+  i7 <- i6 + 1
+  i8 <- i7 + k - 1
+  
+  idx_delta <- i1:i2
+  idx_beta <- i3:i4
+  idx_lambda <- i5:i6
+  idx_gamma <- i7:i8
+
+  deltas <- coefs[idx_delta]
+  betas  <- coefs[idx_beta]
+  lambdas<- coefs[idx_lambda]
+  gammas <- coefs[idx_gamma]
+  
+  sum_delta  <- sum(deltas)
+  sum_beta   <- sum(betas)
+  sum_lambda <- sum(lambdas)
+  sum_gamma  <- sum(gammas)
+
+  LR_pre  <- sum_beta / (1 - sum_delta)
+  LR_post <- (sum_beta + sum_gamma) /
+             (1 - sum_delta - sum_lambda)
+  
+
+  grad_pre <- rep(0, length(coefs))
+  grad_pre[idx_beta]  <- 1 / (1 - sum_delta)
+  grad_pre[idx_delta] <- sum_beta / (1 - sum_delta)^2
+
+
+  grad_post <- rep(0, length(coefs))
+  grad_post[idx_beta]   <- 1 / (1 - sum_delta - sum_lambda)
+  grad_post[idx_gamma]  <- 1 / (1 - sum_delta - sum_lambda)
+  grad_post[idx_delta]  <- (sum_beta + sum_gamma) / (1 - sum_delta - sum_lambda)^2
+  grad_post[idx_lambda] <- (sum_beta + sum_gamma) / (1 - sum_delta - sum_lambda)^2
+
+  se_pre <- sqrt(as.numeric(t(grad_pre) %*% vcov_mat %*% grad_pre))
+  se_post <- sqrt(as.numeric(t(grad_post) %*% vcov_mat %*% grad_post))
+
+    set.seed(1789)
+    n_sim   <- 10000
+    LR_sim_pre <- matrix(0,nrow = n_sim, ncol = 1)
+    LR_sim_post <- matrix(0,nrow = n_sim, ncol = 1)
+     for (ii in seq(1,n_sim,by=1)){
+       #Simulace vektoru parametru delta (pomocna promenna "pom")
+       pom <- mvrnorm(1,coefs,vcov_mat)
+      deltas <- pom[idx_delta]
+      betas  <- pom[idx_beta]
+      lambdas<- pom[idx_lambda]
+      gammas <- pom[idx_gamma]
+      
+      sum_delta  <- sum(deltas)
+      sum_beta   <- sum(betas)
+      sum_lambda <- sum(lambdas)
+      sum_gamma  <- sum(gammas)
+  
+       LR_sim_pre[ii] <- sum_beta / (1 - sum_delta)
+       LR_sim_post[ii] <- (sum_beta + sum_gamma) /
+                 (1 - sum_delta - sum_lambda)
+
+     }
+    
+  list(
+    LR_pre  = LR_pre,
+    SE_pre  = se_pre,
+    LR_post = LR_post,
+    SE_post = se_post,
+    SE_pre_MC = sd(LR_sim_pre),
+    SE_post_MC = sd(LR_sim_post)
+  )
+}
+
+lr_B <- compute_LR_break_B(eq7p_B, k_opt)
+cat(sprintf("  Case B — LR Okun BEFORE 2008Q3: %.4f\n", lr_B$LR_pre))
+cat(sprintf("  Case B — LR Okun AFTER  2008Q3: %.4f\n\n", lr_B$LR_post))
+```
+## Structural Break in Output and Persistence
+In the specification allowing for a structural break in both output and unemployment dynamics, the model (D2) is estimated as:
+\begin{equation}
+U_t^c = \alpha + \sum_{i=1}^{k} \phi_i U_{t-i}^c + \sum_{i=1}^{k} \theta_i y_{t-i}^c + \sum_{i=1}^{k} \gamma_i (D_t \cdot U_{t-i}^c) + \sum_{i=1}^{k} \delta_i (D_t \cdot y_{t-i}^c) + \varepsilon_t,
+\end{equation}
+where $D_t$ is a structural break dummy equal to one after 2008Q3.
+
+The results indicate a highly persistent unemployment process, with $\hat{\phi} = 0.8681$ (0.0443, $p<0.01$), while the effect of lagged output remains negative and significant, $\hat{\theta} = -0.0742$ (0.0196, $p<0.01$). The interaction term for unemployment is negative and statistically significant, $\hat{\gamma} = -0.2540$ (0.0815, $p<0.01$), indicating a reduction in persistence after the break. In contrast, the output interaction term is not statistically significant, $\hat{\delta} = -0.0141$ (0.0254), suggesting no evidence of a structural change in the interaction output term.
+
+The long-run Okun coefficient declines from $\hat{a}^{LR} = -0.5626$ before the break to $\hat{a}^{LR} = -0.2287$ after 2008Q3, indicating a weaker long-run unemployment–output linkage in the post-crisis period.
+
+```{r}
+# Adding D_ts as level dummy too:
+full_break_form <- as.formula(
+  paste("U_cyc_ts ~ D_ts +",
+        paste0("L(U_cyc_ts,",1:k_opt,")", collapse="+"), "+",
+        paste0("L(y_cyc_ts,",1:k_opt,")", collapse="+"), "+",
+        paste0("I(D_ts*L(U_cyc_ts,",1:k_opt,"))", collapse="+"), "+",
+        paste0("I(D_ts*L(y_cyc_ts,",1:k_opt,"))", collapse="+"))
+)
+eq7p_C <- dynlm(full_break_form)
+print(summary(eq7p_C))
+
+compute_LR_break_C <- function(model, k) {
+  coefs     <- coef(model)
+  vcov_mat <- vcov(model)
+  
+  i1 <- 3
+  i2 <- i1 + k - 1
+  i3 <- i2 + 1
+  i4 <- i3 + k - 1
+  i5 <- i4 + 1
+  i6 <- i5 + k - 1
+  i7 <- i6 + 1
+  i8 <- i7 + k - 1
+
+  idx_delta  <- i1:i2
+  idx_beta   <- i3:i4
+  idx_lambda <- i5:i6
+  idx_gamma  <- i7:i8
+  
+  deltas <- coefs[i1:i2]
+  betas  <- coefs[i3:i4]
+  lambdas<- coefs[i5:i6]
+  gammas <- coefs[i7:i8]
+  
+  sum_delta  <- sum(deltas)
+  sum_beta   <- sum(betas)
+  sum_lambda <- sum(lambdas)
+  sum_gamma  <- sum(gammas)
+
+  LR_pre  <-  sum_beta / (1 - sum_delta)
+  LR_post <- (sum_beta + sum_gamma) /
+             (1 - (sum_delta + sum_lambda))
+
+  grad_pre <- rep(0, length(coefs))
+  grad_pre[idx_beta]  <- 1 / (1 - sum_delta)
+  grad_pre[idx_delta] <- sum_beta / (1 - sum_delta)^2
+
+
+  grad_post <- rep(0, length(coefs))
+  grad_post[idx_beta]   <- 1 / (1 - sum_delta - sum_lambda)
+  grad_post[idx_gamma]  <- 1 / (1 - sum_delta - sum_lambda)
+  grad_post[idx_delta]  <- (sum_beta + sum_gamma) / (1 - sum_delta - sum_lambda)^2
+  grad_post[idx_lambda] <- (sum_beta + sum_gamma) / (1 - sum_delta - sum_lambda)^2
+
+  se_pre <- sqrt(as.numeric(t(grad_pre) %*% vcov_mat %*% grad_pre))
+  se_post <- sqrt(as.numeric(t(grad_post) %*% vcov_mat %*% grad_post))
+
+    set.seed(1789)
+    n_sim   <- 10000
+    LR_sim_pre <- matrix(0,nrow = n_sim, ncol = 1)
+    LR_sim_post <- matrix(0,nrow = n_sim, ncol = 1)
+     for (ii in seq(1,n_sim,by=1)){
+       #Simulace vektoru parametru delta (pomocna promenna "pom")
+       pom <- mvrnorm(1,coefs,vcov_mat)
+      deltas <- pom[i1:i2]
+      betas  <- pom[i3:i4]
+      lambdas <- pom[i5:i6]
+      gammas <- pom[i7:i8]
+      
+      sum_delta  <- sum(deltas)
+      sum_beta   <- sum(betas)
+      sum_lambda <- sum(lambdas)
+      sum_gamma  <- sum(gammas)
+    
+      LR_pre  <-  sum_beta / (1 - sum_delta)
+      LR_post <- (sum_beta + sum_gamma) /
+                 (1 - (sum_delta + sum_lambda))
+  
+       LR_sim_pre[ii] <- sum_beta / (1 - sum_delta)
+       LR_sim_post[ii] <- (sum_beta + sum_gamma) /
+                 (1 - (sum_delta + sum_lambda))
+
+     }
+    
+  list(
+    LR_pre  = LR_pre,
+    SE_pre  = se_pre,
+    LR_post = LR_post,
+    SE_post = se_post,
+    SE_pre_MC = sd(LR_sim_pre),
+    SE_post_MC = sd(LR_sim_post)
+  )
+}
+lr_C <- compute_LR_break_C(eq7p_C, k_opt)
+cat(sprintf("  Case C — LR Okun BEFORE 2008Q3: %.4f\n", lr_C$LR_pre))
+cat(sprintf("  Case C — LR Okun AFTER  2008Q3: %.4f\n\n", lr_C$LR_post))
+```
+## Full Structural Break
+In the most general specification, we allow for a structural break in all coefficients of the dynamic Okun relationship. This model (D3) is given by:
+\begin{equation}
+U_t^c
+= (\alpha_0 + \alpha_1 D_t)
++ \sum_{i=1}^{k} (\phi_i + \gamma_i D_t) U_{t-i}^c
++ \sum_{i=1}^{k} (\theta_i + \delta_i D_t) y_{t-i}^c
++ \varepsilon_t,
+\end{equation}
+where $D_t$ equals one after 2008Q3 and zero otherwise.
+
+The intercept and the break dummy are not statistically significant. The lagged unemployment term remains highly persistent, with $\hat{\phi} = 0.8681$ (0.0444), but this persistence weakens after the break, as indicated by the negative and significant interaction term $\hat{\gamma} = -0.2536$ (0.0818, $p<0.01$). The effect of lagged output is negative and statistically significant, $\hat{\theta} = -0.0742$ (0.0197), whereas its post-break change is not significant, $\hat{\delta} = -0.0140$ (0.0255). Overall, the evidence suggests that the structural change is mainly driven by a shift in unemployment persistence, while the transmission from output to unemployment remains stable.
+
+The implied long-run Okun coefficient decreases from $\hat{a}^{LR} = -0.5105$ before the break to $\hat{a}^{LR} = -0.2836$ after 2008Q3, indicating a weaker long-run relationship in the post-crisis period.
+
+
+```{r okun-table, include = TRUE}
+okun_table <- data.frame(
+Specification = c(
+  "D0: No break",
+  "D1: Pre-break",
+  "D1: Post-break",
+  "D2: Pre-break",
+  "D2: Post-break",
+  "D3: Pre-break",
+  "D3: Post-break"
+),
+  
+  Okun_LR = c(
+    lr7$LR,
+    lr_A$LR_pre, lr_A$LR_post,
+    lr_B$LR_pre, lr_B$LR_post,
+    lr_C$LR_pre, lr_C$LR_post
+  ),
+  
+  SE_delta = c(
+    lr7$SE,
+    lr_A$SE_pre, lr_A$SE_post,
+    lr_B$SE_pre, lr_B$SE_post,
+    lr_C$SE_pre, lr_C$SE_post
+  ),
+  
+  SE_MC = c(
+    lr7$SE_MC,
+    lr_A$SE_pre_MC, lr_A$SE_post_MC,
+    lr_B$SE_pre_MC, lr_B$SE_post_MC,
+    lr_C$SE_pre_MC, lr_C$SE_post_MC
+  )
+)
+
+knitr::kable(
+  okun_table,
+  digits = 4,
+  caption = "Long-run Okun coefficients with delta-method and Monte Carlo standard errors",
+      booktabs = TRUE)%>%
+  kable_styling(latex_options = c("hold_position", "striped"))
 ```
 
+# Estimation of Standard Errors for Long-Run Okun Coefficients
+Table~\ref{tab:okun-table} reports the estimated long-run Okun coefficients together with their standard errors obtained using the Delta method and Monte Carlo simulation based on 10{,}000 replications. The results confirm a consistently negative relationship between output and unemployment across all specifications. 
+
+The baseline model without structural breaks yields a relatively small long-run effect, $\hat{a}^{LR} = -0.0974$, reflecting strong persistence in unemployment dynamics and a weak long-run transmission from output fluctuations. However, this estimate is associated with relatively large standard errors, indicating considerable statistical uncertainty around the magnitude of the long-run effect in the absence of structural breaks. 
+
+In the baseline dynamic model (D0), the long-run effect is relatively small, $\hat{a}^{LR} = -0.0974$, reflecting strong persistence in unemployment dynamics. When structural breaks are introduced (D1–D3), the pre-crisis coefficients are substantially larger in magnitude (approximately $-0.45$ to $-0.56$), while post-break values decline markedly to around $-0.23$ to $-0.33$. This indicates a clear weakening of the unemployment–output linkage in the post-crisis period. 
+
+The Delta method and Monte Carlo standard errors are broadly consistent across most specifications. However, some discrepancies in the pre-break estimates for Cases B and C suggest increased estimation uncertainty arising from nonlinear transformations and higher parameter variability in more complex break specifications. Overall, the findings point to a structurally weaker Okun relationship after the global financial crisis, with robust evidence across alternative model specifications.
 
